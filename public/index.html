@@ -271,6 +271,7 @@ function connect(then){
   ws.onmessage=(ev)=>{
     const m=JSON.parse(ev.data);
     if(m.type==='error'){ alert(m.error); return; }
+    if(m.type==='choose-seat'){ CODE=m.code; PLAYERS=m.players; ME=-1; STARTED=false; render(); return; }
     if(m.type==='joined'){ CODE=m.code; ME=m.seat; TOKEN=m.token; STARTED=m.started;
       sessionStorage.setItem('belote', JSON.stringify({code:CODE, token:TOKEN}));
       render(); return; }
@@ -299,21 +300,25 @@ function render(){
   const root=document.getElementById('root');
   root.innerHTML='';
 
-  // boutons ronds ambiance + plein ecran : disponibles sur TOUS les ecrans, y compris l'accueil
-  const tb=iconBtn('ib-l1','\u25D0','Changer l\'ambiance', cycleTheme);
-  root.appendChild(tb);
-  const fb=document.createElement('div'); fb.className='icon-btn ib-l2';
-  fb.innerHTML = isFullscreen() ? ICON_CONTRACT : ICON_EXPAND;
-  fb.title = isFullscreen() ? 'Quitter le plein écran' : 'Plein écran';
-  fb.onclick = toggleFullscreen;
-  root.appendChild(fb);
+  // boutons ronds ambiance + plein ecran : disponibles partout SAUF sur l'ecran de choix
+  // des sieges (contenu plus dense que le solo, un bouton en position fixe pouvait
+  // recouvrir la chaise du haut et intercepter le clic destine a la chaise en dessous)
+  if(STARTED || ME<0){
+    const tb=iconBtn('ib-l1','\u25D0','Changer l\'ambiance', cycleTheme);
+    root.appendChild(tb);
+    const fb=document.createElement('div'); fb.className='icon-btn ib-l2';
+    fb.innerHTML = isFullscreen() ? ICON_CONTRACT : ICON_EXPAND;
+    fb.title = isFullscreen() ? 'Quitter le plein écran' : 'Plein écran';
+    fb.onclick = toggleFullscreen;
+    root.appendChild(fb);
+  }
   if(clientToast){
     const tt=document.createElement('div'); tt.className='theme-toast'; tt.textContent=clientToast;
     root.appendChild(tt);
   }
 
   // ---------- accueil ----------
-  if(ME<0){
+  if(!CODE){
     const home=document.createElement('div'); home.className='home-screen';
     home.innerHTML='<p>Belote entre amis — les sièges vides sont tenus par les bots.</p>';
     const name=document.createElement('input'); name.placeholder='Ton prénom'; name.maxLength=14;
@@ -334,9 +339,11 @@ function render(){
   // ---------- lobby : table avec sieges cliquables ----------
   if(!STARTED){
     const l=document.createElement('div'); l.className='home-screen';
+    const intro = ME<0
+      ? 'Choisis ta place : clique la chaise que tu veux.'
+      : 'Partage ce code à tes amis. Clique une autre chaise libre pour changer de place.';
     l.innerHTML='<h2 style="color:#f4d99a">Code de la partie : <b>'+CODE+'</b></h2>'
-      +'<p>Partage ce code à tes amis. Clique une chaise libre pour t\'y asseoir.<br>'
-      +'Les sièges 0-2 et 1-3 sont partenaires ; les chaises vides seront des bots.</p>';
+      +'<p>'+intro+'<br>Les sièges 0-2 et 1-3 sont partenaires ; les chaises vides seront des bots.</p>';
 
     // table schematique : haut / gauche-droite / bas — equipes par couleur
     const tbl=document.createElement('div');
@@ -366,9 +373,11 @@ function render(){
     tbl.appendChild(net);
     l.appendChild(tbl);
 
-    const go=document.createElement('button'); go.className='gold-btn'; go.textContent='LANCER LA PARTIE';
-    go.onclick=()=>send({type:'start'});
-    l.appendChild(go);
+    if(ME>=0){
+      const go=document.createElement('button'); go.className='gold-btn'; go.textContent='LANCER LA PARTIE';
+      go.onclick=()=>send({type:'start'});
+      l.appendChild(go);
+    }
     root.appendChild(l);
     return;
   }

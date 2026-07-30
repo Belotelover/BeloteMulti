@@ -61,6 +61,7 @@ function createRoom(){
     started: false,
     // par siege : { name, token, ws|null }  — null = siege bot
     seats: [null, null, null, null],
+    pending: new Set(), // connexions ayant rejoint mais n'ayant pas encore choisi de siege
     lastActivity: Date.now()
   };
   // cablage FX -> reseau
@@ -187,57 +188,61 @@ setInterval(()=>{
 const wss = new WebSocketServer({ server: httpServer });
 
 wss.on('connection', (ws)=>{
-  let myRoom=null, mySeat=-1;
+  ws._room=null; ws._seat=-1; ws._name='';
 
   ws.on('message', (raw)=>{
     let msg; try{ msg=JSON.parse(raw); }catch(e){ return; }
-    if(myRoom) myRoom.lastActivity=Date.now();
+    if(ws._room) ws._room.lastActivity=Date.now();
 
-    // --- creation / entree dans une room ---
+    // --- creation d'une partie : le createur choisit aussi sa place (table vide, trivial) ---
     if(msg.type==='create'){
       const room=createRoom();
-      joinRoom(room, msg.name);
+      enterAsPending(room, msg.name);
       return;
     }
+
+    // --- rejoindre une partie existante : on n'assigne PLUS de siege automatiquement.
+    // Chaque joueur choisit sa place lui-meme via 'sit', avant d'etre reellement installe. ---
     if(msg.type==='join'){
       const room=rooms.get(String(msg.code||'').toUpperCase());
       if(!room){ send(ws,{type:'error', error:'Partie introuvable'}); return; }
-      // reconnexion par jeton ?
+      // reconnexion par jeton : on retrouve directement son ancien siege
       if(msg.token){
         const idx=room.seats.findIndex(s=>s && s.token===msg.token);
         if(idx>=0){
-          room.seats[idx].ws=ws; myRoom=room; mySeat=idx;
+          room.seats[idx].ws=ws; ws._room=room; ws._seat=idx;
           syncHumans(room);
           send(ws,{type:'joined', code:room.code, seat:idx, token:msg.token, started:room.started});
           broadcast(room);
           return;
         }
       }
-      joinRoom(room, msg.name);
+      enterAsPending(room, msg.name);
       return;
     }
 
-    if(!myRoom || mySeat<0) return;
-    const E=myRoom.E, S=E.S;
+    if(!ws._room) return;
+    const myRoom=ws._room;
 
+    // --- choisir sa place : fonctionne aussi bien pour le tout premier choix (pas encore
+    // assis, on vient de rejoindre) que pour changer de siege plus tard dans le lobby ---
     if(msg.type==='sit'){
-      // choisir sa chaise, uniquement dans le lobby (avant le lancement)
+      if(myRoom.started) return;
       const t = msg.seat|0;
-      if(!myRoom.started && t>=0 && t<4 && myRoom.seats[t]===null){
-        myRoom.seats[t]=myRoom.seats[mySeat];
-        myRoom.seats[mySeat]=null;
-        mySeat=t;
-        syncHumans(myRoom);
-        send(ws,{type:'joined', code:myRoom.code, seat:mySeat, token:myRoom.seats[t].token, started:false});
-        for(const sx of myRoom.seats) if(sx && sx.ws) send(sx.ws,{type:'lobby', players:playersInfo(myRoom), started:false});
-      }
+      if(t<0 || t>3 || myRoom.seats[t]!==null) return; // la chaise doit etre libre
+      seatConnection(myRoom, ws, t);
       return;
     }
+
+    if(ws._seat<0) return; // pas encore assis : rien d'autre n'est permis
+
     if(msg.type==='start'){ startGame(myRoom); return; }
 
+    const E=myRoom.E, S=E.S;
     if(!myRoom.started || !S) return;
 
     // --- actions de jeu : le moteur revalide tout (siege, tour, legalite) ---
+    const mySeat=ws._seat;
     switch(msg.type){
       case 'deal':   E.humanChooseDeal(msg.first===2?2:3, mySeat); break;
       case 'take':   E.humanTakeRound1(mySeat); break;
@@ -258,22 +263,42 @@ wss.on('connection', (ws)=>{
     }
   });
 
-  function joinRoom(room, name){
-    const idx=room.seats.findIndex(s=>s===null);
-    if(idx<0){ send(ws,{type:'error', error:'Partie complète (4 joueurs)'}); return; }
-    const token=crypto.randomBytes(12).toString('hex');
-    room.seats[idx]={ name:String(name||'Joueur').slice(0,14), token, ws };
-    myRoom=room; mySeat=idx;
-    syncHumans(room);
-    send(ws,{type:'joined', code:room.code, seat:idx, token, started:room.started});
-    // informer tout le monde du lobby
-    for(const s of room.seats) if(s && s.ws) send(s.ws,{type:'lobby', players:playersInfo(room), started:room.started});
-    if(room.started) broadcast(room);
+  // le joueur est associe a la room mais PAS ENCORE a un siege : il doit choisir sa place
+  function enterAsPending(room, name){
+    ws._room=room; ws._seat=-1; ws._name=String(name||'Joueur').slice(0,14);
+    room.pending.add(ws);
+    send(ws,{type:'choose-seat', code:room.code, players:playersInfo(room)});
   }
 
   ws.on('close', ()=>{
-    if(myRoom && mySeat>=0) onDisconnect(myRoom, mySeat);
+    if(ws._room && ws._seat>=0) onDisconnect(ws._room, ws._seat);
+    else if(ws._room) ws._room.pending.delete(ws); // depart avant meme d'avoir choisi une place
   });
 });
+
+// Installe une connexion (deja en attente OU deja assise ailleurs) sur la chaise t.
+// Reutilise pour : le clic du joueur sur une chaise libre, ET pour installer d'office
+// quiconque n'aurait pas encore choisi au moment ou la partie demarre.
+function seatConnection(room, ws, t){
+  if(room.seats[t]!==null) return false;
+  if(ws._seat<0){
+    room.pending.delete(ws);
+    const token=crypto.randomBytes(12).toString('hex');
+    room.seats[t] = { name: ws._name || 'Joueur', token, ws };
+  }else{
+    room.seats[t]=room.seats[ws._seat];
+    room.seats[ws._seat]=null;
+  }
+  ws._seat=t;
+  syncHumans(room);
+  send(ws,{type:'joined', code:room.code, seat:t, token:room.seats[t].token, started:room.started});
+  broadcastLobby(room);
+  return true;
+}
+
+function broadcastLobby(room){
+  for(const s of room.seats) if(s && s.ws) send(s.ws,{type:'lobby', players:playersInfo(room), started:false});
+  for(const w of room.pending) send(w,{type:'choose-seat', code:room.code, players:playersInfo(room)});
+}
 
 httpServer.listen(PORT, ()=>console.log('Belote server sur le port', PORT));

@@ -13,6 +13,7 @@ function mk(){ return new Promise(res=>{
   ws.on('open',()=>res(c));
   ws.on('message',raw=>{
     const m=JSON.parse(raw);
+    if(m.type==='choose-seat'){ c.code=m.code; const free=[0,1,2,3].find(i=>!m.players[i].human); send(c,{type:'sit', seat:free}); }
     if(m.type==='joined'){ c.seat=m.seat; c.code=m.code; c.token=m.token; }
     if(m.type==='view'){ c.view=m.view; c.views++; auto(c); }
   });

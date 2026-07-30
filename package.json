@@ -1,0 +1,9 @@
+{
+  "name": "belote-entre-amis",
+  "version": "1.0.0",
+  "description": "Belote multijoueur — rooms à code, bots pour compléter, même moteur que la version solo",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=18" },
+  "dependencies": { "ws": "^8.17.0" }
+}

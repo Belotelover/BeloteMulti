@@ -1,0 +1,8 @@
+# Blueprint Render : déploiement en un clic depuis un dépôt Git.
+services:
+  - type: web
+    name: belote
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start

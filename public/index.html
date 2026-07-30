@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0e4425">
+<title>Belote entre amis</title>
+<style>
+  :root{
+    --wood1:#e8bb6e; --wood2:#c8923f; --wood-dark:#5b3a1a;
+    --felt1:#1f7a45; --felt2:#0e4425;
+    --gold1:#e9bd72; --gold2:#c8923f; --gold-border:#5b3a1a;
+    --ink:#2a1a08;
+    --back:#a8202a;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;font-family:'Segoe UI',Arial,sans-serif;background:#000;overflow:hidden;}
+  #app{position:relative;width:100%;height:100%;height:100dvh;max-width:520px;margin:0 auto;background:radial-gradient(ellipse at center, var(--felt1), var(--felt2));display:flex;flex-direction:column;}
+
+  header{
+    background:linear-gradient(180deg,var(--wood1),var(--wood2));
+    border-bottom:3px solid var(--wood-dark);
+    text-align:center;padding:14px 10px;flex-shrink:0;
+    box-shadow:0 3px 8px rgba(0,0,0,.4);
+  }
+  header h1{margin:0;font-size:28px;letter-spacing:1px;color:var(--wood-dark);text-shadow:0 1px 0 rgba(255,255,255,.3);font-weight:800;}
+
+  .hud{position:sticky;top:0;left:0;right:0;background:linear-gradient(180deg,rgba(0,0,0,.75),rgba(0,0,0,.3));padding:7px 12px 8px;z-index:8;margin:-8px -8px 0;}
+  .hud-scores{display:flex;justify-content:space-between;align-items:baseline;}
+  .hud-scores .team{font-size:13px;font-weight:800;text-shadow:0 1px 2px #000;}
+  .hud-scores .nous{color:#bfe6c9;}
+  .hud-scores .eux{color:#f3c1c1;}
+  .hud-scores .team small{font-weight:400;opacity:.85;font-size:10.5px;}
+  .hud-round{margin-top:4px;text-align:center;font-size:11.5px;color:#f4d99a;text-shadow:0 1px 2px #000;}
+
+  .table{flex:1;position:relative;padding:8px;overflow-y:auto;overflow-x:hidden;}
+
+  .hand-row{display:flex;justify-content:center;}
+  .top-hand{position:absolute;top:130px;left:0;right:0;display:flex;justify-content:center;}
+  .left-hand{position:absolute;top:50%;left:2px;transform:translateY(-50%);display:flex;flex-direction:column;}
+  .right-hand{position:absolute;top:50%;right:2px;transform:translateY(-50%);display:flex;flex-direction:column;}
+  .bottom-hand{position:absolute;bottom:6px;left:0;right:0;display:flex;justify-content:center;flex-wrap:wrap;gap:0;z-index:4;}
+
+  .mini-card{width:34px;height:50px;border:1.5px solid #fff;border-radius:5px;margin:0 -4px;box-shadow:0 2px 4px rgba(0,0,0,.5);
+    background-color:var(--back);
+    background-image:
+      repeating-linear-gradient(45deg, rgba(255,255,255,.55) 0 1px, transparent 1px 5px),
+      repeating-linear-gradient(-45deg, rgba(255,255,255,.55) 0 1px, transparent 1px 5px);
+    background-clip:padding-box;}
+  .left-hand .mini-card, .right-hand .mini-card{margin:-6px 0;}
+
+  .center-area{position:absolute;top:54%;left:50%;transform:translate(-50%,-50%);display:flex;gap:16px;align-items:center;justify-content:center;min-height:110px;}
+
+  .trick-area{position:absolute;top:54%;left:50%;transform:translate(-50%,-50%);width:216px;height:224px;}
+  .trick-slot{position:absolute;width:68px;height:100px;}
+  /* les cartes jouées au centre sont plus grandes : c'est l'information la plus regardée */
+  .trick-slot .card{width:68px;height:100px;padding:4px 5px;}
+  .trick-slot .card .r1, .trick-slot .card .r2{font-size:16px;}
+  .trick-slot .card .suit-big{font-size:29px;}
+  .slot-bottom{bottom:0;left:50%;transform:translateX(-50%);}
+  .slot-top{top:0;left:50%;transform:translateX(-50%);}
+  .slot-left{left:0;top:50%;transform:translateY(-50%);}
+  .slot-right{right:0;top:50%;transform:translateY(-50%);}
+
+  .card{width:52px;height:76px;background:#fdfcf6;border-radius:6px;border:1px solid #333;box-shadow:0 2px 5px rgba(0,0,0,.5);display:flex;flex-direction:column;justify-content:space-between;padding:3px 4px;font-weight:700;position:relative;user-select:none;}
+  .card .r1{font-size:13px;line-height:1;}
+  .card .suit-big{font-size:22px;align-self:center;}
+  .card .r2{font-size:13px;line-height:1;align-self:flex-end;transform:rotate(180deg);}
+  .suit-h{color:#c1272d;}
+  .suit-d{color:#1a63c9;}
+  .suit-c{color:#1c7a3e;}
+  .suit-s{color:#111;}
+
+  .bottom-hand .card{width:66px;height:96px;margin:0 -9px;transition:transform .15s;cursor:pointer;}
+  .bottom-hand .card .r1, .bottom-hand .card .r2{font-size:16px;}
+  .bottom-hand .card .suit-big{font-size:27px;}
+  .bottom-hand .card:hover{transform:translateY(-10px);}
+  .bottom-hand .card.disabled{filter:brightness(.6) saturate(.4);cursor:not-allowed;}
+  .bottom-hand .card.disabled:hover{transform:none;}
+
+  .talon-back{width:52px;height:76px;border-radius:6px;border:2px solid #fff;box-shadow:0 2px 5px rgba(0,0,0,.5);
+    background-color:var(--back);
+    background-image:
+      repeating-linear-gradient(45deg, rgba(255,255,255,.55) 0 1.5px, transparent 1.5px 7px),
+      repeating-linear-gradient(-45deg, rgba(255,255,255,.55) 0 1.5px, transparent 1.5px 7px);
+    background-clip:padding-box;}
+
+  .gold-btn{background:linear-gradient(180deg,var(--gold1),var(--gold2));border:2px solid var(--gold-border);border-radius:24px;color:var(--ink);font-weight:700;padding:12px 22px;font-size:15px;cursor:pointer;box-shadow:0 3px 6px rgba(0,0,0,.4);}
+  .gold-btn:active{transform:translateY(1px);}
+  .gold-btn:disabled{opacity:.5;cursor:default;}
+
+  .overlay{position:absolute;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:20;}
+  .bid-panel-wrap{position:absolute;top:190px;left:50%;transform:translateX(-50%);z-index:20;width:90%;max-width:340px;}
+  .bid-bar{position:absolute;top:56px;left:0;right:0;z-index:20;background:rgba(18,13,7,.92);border-bottom:2px solid var(--gold-border);box-shadow:0 4px 10px rgba(0,0,0,.5);padding:8px 10px;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px;}
+  .bid-bar .bid-text{color:#f4d99a;font-size:12.5px;font-weight:700;text-shadow:0 1px 2px #000;flex-basis:100%;text-align:center;}
+  .gold-btn.small{padding:7px 14px;font-size:13px;}
+  .deal-choice-bar{position:absolute;top:56px;left:0;right:0;z-index:20;background:rgba(18,13,7,.92);border-bottom:2px solid var(--gold-border);box-shadow:0 4px 10px rgba(0,0,0,.5);padding:10px;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:10px;}
+  .suit-btn{width:40px;height:40px;font-size:20px;border-radius:8px;border:2px solid var(--gold-border);background:#fdfcf6;cursor:pointer;}
+  .panel{background:linear-gradient(180deg,#1f7a45,#0e4425);border:2px solid var(--gold-border);border-radius:14px;padding:22px;max-width:340px;width:88%;text-align:center;color:#f4f4f4;box-shadow:0 10px 30px rgba(0,0,0,.6);}
+  .panel h2{margin-top:0;color:#f4d99a;font-size:20px;}
+  .panel .btn-row{display:flex;gap:12px;justify-content:center;margin-top:16px;flex-wrap:wrap;}
+  .suit-pick{display:flex;gap:10px;justify-content:center;margin-top:14px;flex-wrap:wrap;}
+  .suit-pick button{width:52px;height:52px;font-size:24px;border-radius:10px;border:2px solid var(--gold-border);background:#fdfcf6;cursor:pointer;}
+
+  .card-lg{width:78px;height:114px;margin:10px auto;}
+  .card-lg .r1, .card-lg .r2{font-size:18px;}
+  .card-lg .suit-big{font-size:34px;}
+
+  .banner{position:absolute;top:210px;left:50%;transform:translate(-50%,0);background:rgba(0,0,0,.65);color:#f4d99a;padding:6px 14px;border-radius:8px;font-size:13px;z-index:15;pointer-events:none;text-align:center;max-width:80%;}
+
+  .home-screen{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:20px;}
+  .home-screen p{color:#dfeee2;text-align:center;font-size:13px;max-width:320px;}
+
+  .dealer-badge{position:absolute;width:26px;height:26px;border-radius:50%;background:#c1272d;color:#fff;font-weight:800;font-size:14px;display:flex;align-items:center;justify-content:center;border:2px solid #fff;box-shadow:0 2px 5px rgba(0,0,0,.5);z-index:7;}
+  .taker-badge{position:absolute;min-width:30px;height:30px;padding:0 6px;border-radius:15px;background:linear-gradient(180deg,var(--gold1),var(--gold2));color:#111;font-weight:800;font-size:16px;display:flex;align-items:center;justify-content:center;gap:2px;border:2px solid var(--gold-border);box-shadow:0 2px 6px rgba(0,0,0,.55);z-index:8;}
+  .taker-bottom{bottom:96px;left:calc(50% - 46px);}
+  .taker-right{top:calc(50% - 100px);right:2px;}
+  .taker-top{top:172px;left:calc(50% - 46px);}
+  .taker-left{top:calc(50% - 100px);left:2px;}
+  .trump-watermark{position:absolute;font-size:88px;line-height:1;opacity:.16;pointer-events:none;z-index:2;font-weight:800;}
+  .wm-bottom{bottom:110px;left:50%;transform:translate(-50%,0);}
+  .icon-btn{position:absolute;z-index:9;width:36px;height:36px;border-radius:50%;
+    background:linear-gradient(180deg,var(--gold1),var(--gold2));border:2px solid var(--gold-border);
+    color:var(--ink);font-size:17px;line-height:1;display:flex;align-items:center;justify-content:center;
+    cursor:pointer;box-shadow:0 2px 5px rgba(0,0,0,.4);}
+  .ib-l1{top:112px;left:8px;}
+  .ib-l2{top:156px;left:8px;}
+  .ib-r1{top:112px;right:8px;}
+  .ib-r2{top:156px;right:8px;}
+  .cross-wrap{position:relative;width:200px;height:210px;margin:10px auto;}
+  .cross-slot{position:absolute;width:56px;text-align:center;}
+  .cross-slot .who{font-size:9.5px;color:#f4d99a;margin-bottom:2px;}
+  .cross-bottom{bottom:0;left:50%;transform:translateX(-50%);}
+  .cross-top{top:0;left:50%;transform:translateX(-50%);}
+  .cross-left{left:0;top:50%;transform:translateY(-50%);}
+  .cross-right{right:0;top:50%;transform:translateY(-50%);}
+  .wm-right{top:50%;right:2px;transform:translate(0,-50%);}
+  .wm-top{top:130px;left:50%;transform:translate(-50%,0);}
+  .wm-left{top:50%;left:2px;transform:translate(0,-50%);}
+  .bubble{position:absolute;z-index:16;max-width:130px;background:#fdfcf6;color:#1a1a1a;font-size:11.5px;
+    font-weight:600;padding:5px 9px;border-radius:11px;box-shadow:0 3px 8px rgba(0,0,0,.5);
+    border:1px solid #b9a97e;line-height:1.25;}
+  .bub-bottom{bottom:150px;left:calc(50% - 150px);}
+  .bub-right{top:calc(50% + 34px);right:8px;}
+  .bub-top{top:196px;left:calc(50% + 26px);}
+  .bub-left{top:calc(50% + 34px);left:8px;}
+  .chat-bar{position:absolute;bottom:96px;left:8px;right:8px;z-index:19;background:rgba(18,13,7,.94);
+    border:2px solid var(--gold-border);border-radius:12px;padding:8px;display:flex;flex-wrap:wrap;
+    gap:6px;justify-content:center;box-shadow:0 4px 12px rgba(0,0,0,.5);}
+  .chat-bar button{background:#fdfcf6;border:1px solid #b9a97e;border-radius:14px;padding:6px 10px;
+    font-size:12px;font-weight:600;cursor:pointer;color:#1a1a1a;}
+
+  .theme-toast{position:absolute;top:104px;left:50%;transform:translateX(-50%);z-index:22;
+    background:rgba(0,0,0,.78);color:#fff;font-size:12.5px;font-weight:700;padding:6px 14px;
+    border-radius:14px;border:1px solid rgba(255,255,255,.28);pointer-events:none;white-space:nowrap;}
+
+  .bid-mark{position:absolute;z-index:9;font-size:11px;font-weight:800;padding:2px 7px;border-radius:9px;
+    background:rgba(0,0,0,.62);color:#cfd8d0;border:1px solid rgba(255,255,255,.25);white-space:nowrap;}
+  .bid-mark.takes{background:linear-gradient(180deg,var(--gold1),var(--gold2));color:#111;border-color:var(--gold-border);}
+  .bid-mark.turn{background:#2e7d46;color:#fff;border-color:#9fe0b4;}
+  .bm-top{top:108px;left:calc(50% + 38px);}
+  .bm-left{top:calc(50% - 80px);left:6px;}
+  .bm-right{top:calc(50% - 80px);right:6px;}
+  .bm-bottom{bottom:98px;left:calc(50% + 38px);}
+
+  .bot-label{position:absolute;font-size:10.5px;color:#f4d99a;text-shadow:0 1px 2px #000;z-index:6;background:rgba(0,0,0,.35);padding:2px 6px;border-radius:6px;white-space:nowrap;}
+  .label-top{top:108px;left:50%;transform:translateX(-50%);}
+  .label-left{top:calc(50% - 100px);left:4px;}
+  .label-right{top:calc(50% - 100px);right:4px;}
+  .dealer-bottom{bottom:60px;left:calc(50% - 90px);}
+  .dealer-right{top:50%;right:36px;transform:translateY(-50%);}
+  .dealer-top{top:188px;left:calc(50% - 90px);}
+  .dealer-left{top:50%;left:36px;transform:translateY(-50%);}
+
+  .newgame-btn{position:absolute;bottom:10px;right:10px;z-index:6;}
+  footer-note{}
+
+/* le client multi reutilise .blk pour le noir */
+.blk{color:#1a1a1a;}
+</style>
+</head>
+<body>
+<div id="app">
+  <header><h1>Belote</h1></header>
+  <div id="root" class="table"></div>
+</div>
+<script>
+// ============================================================================
+// Client multijoueur : ne contient AUCUNE regle du jeu. Il recoit une vue (V)
+// du serveur, la dessine, et envoie des intentions. Impossible de tricher :
+// les cartes des autres ne sont jamais transmises.
+// ============================================================================
+let ws=null, V=null, PLAYERS=null, ME=-1, CODE=null, TOKEN=null, STARTED=false;
+let showLast=false, showChat=false;
+
+const SUITS=['\u2665','\u2666','\u2663','\u2660'];
+const PHRASES_FLAT=['Bien joué !','Joli coup','Chapeau','Bien vu','Dommage','Presque !','Aïe','Pas de chance','Allez là !','On y va','Courage','Regarde la route 😄','Tu dors ?','Ça fait mal','Salut !','Bonne partie','Merci'];
+
+function relPos(seat){ // position ECRAN vue de MON siege : moi en bas
+  return (seat - ME + 4) % 4; // 0=bas(moi) ; l'ordre horaire du moteur est 0,3,2,1
+}
+// mapping ecran : rel 0=bas, et pour respecter le sens horaire visuel : 1->droite? Le moteur tourne 0,3,2,1.
+// vu de n'importe quel siege, le joueur suivant (sens horaire) doit apparaitre a GAUCHE quand on tourne horaire sur table vue de dessus... on garde la convention solo : bas, droite, haut, gauche pour rel 0..3 calcule en sens inverse
+function screenSlot(seat){
+  const d=(seat-ME+4)%4;      // 0 moi
+  return ['bottom','right','top','left'][d===0?0: d===1?1: d===2?2:3];
+}
+
+function connect(then){
+  const proto = location.protocol==='https:'?'wss:':'ws:';
+  ws = new WebSocket(proto+'//'+location.host);
+  ws.onopen=then;
+  ws.onmessage=(ev)=>{
+    const m=JSON.parse(ev.data);
+    if(m.type==='error'){ alert(m.error); return; }
+    if(m.type==='joined'){ CODE=m.code; ME=m.seat; TOKEN=m.token; STARTED=m.started;
+      sessionStorage.setItem('belote', JSON.stringify({code:CODE, token:TOKEN}));
+      render(); return; }
+    if(m.type==='lobby'){ PLAYERS=m.players; STARTED=m.started; render(); return; }
+    if(m.type==='view'){ V=m.view; PLAYERS=m.players; STARTED=true; render(); return; }
+  };
+  ws.onclose=()=>{ setTimeout(()=>{ // reconnexion automatique avec le jeton
+    const saved=sessionStorage.getItem('belote');
+    if(saved){ const {code,token}=JSON.parse(saved);
+      connect(()=>ws.send(JSON.stringify({type:'join', code, token}))); }
+  }, 1200); };
+}
+function send(o){ if(ws && ws.readyState===1) ws.send(JSON.stringify(o)); }
+
+function cardEl(c, cls, onClick){
+  const red = c.suit==='\u2665'||c.suit==='\u2666';
+  const d=document.createElement('div');
+  d.className='card '+(red?'red':'blk')+(cls?' '+cls:'');
+  d.innerHTML='<div class="r1">'+c.rank+c.suit+'</div><div class="suit-big">'+c.suit+'</div><div class="r2">'+c.rank+c.suit+'</div>';
+  if(onClick) d.onclick=onClick;
+  return d;
+}
+
+function render(){
+  const root=document.getElementById('root');
+  root.innerHTML='';
+
+  // ---------- accueil ----------
+  if(ME<0){
+    const home=document.createElement('div'); home.className='home-screen';
+    home.innerHTML='<p>Belote entre amis — les sièges vides sont tenus par les bots.</p>';
+    const name=document.createElement('input'); name.placeholder='Ton prénom'; name.maxLength=14;
+    name.style.cssText='padding:10px;border-radius:10px;border:2px solid #5b3a1a;font-size:15px;text-align:center;';
+    const bC=document.createElement('button'); bC.className='gold-btn'; bC.textContent='CRÉER UNE PARTIE';
+    bC.onclick=()=>connect(()=>send({type:'create', name:name.value}));
+    const code=document.createElement('input'); code.placeholder='CODE'; code.maxLength=4;
+    code.style.cssText='padding:10px;border-radius:10px;border:2px solid #5b3a1a;font-size:15px;text-align:center;text-transform:uppercase;width:90px;';
+    const bJ=document.createElement('button'); bJ.className='gold-btn'; bJ.textContent='REJOINDRE';
+    bJ.onclick=()=>connect(()=>send({type:'join', code:code.value, name:name.value}));
+    home.appendChild(name); home.appendChild(bC);
+    const row=document.createElement('div'); row.style.cssText='display:flex;gap:10px;align-items:center;';
+    row.appendChild(code); row.appendChild(bJ); home.appendChild(row);
+    root.appendChild(home);
+    return;
+  }
+
+  // ---------- lobby : table avec sieges cliquables ----------
+  if(!STARTED){
+    const l=document.createElement('div'); l.className='home-screen';
+    l.innerHTML='<h2 style="color:#f4d99a">Code de la partie : <b>'+CODE+'</b></h2>'
+      +'<p>Partage ce code à tes amis. Clique une chaise libre pour t\'y asseoir.<br>'
+      +'Les sièges 0-2 et 1-3 sont partenaires ; les chaises vides seront des bots.</p>';
+
+    // table schematique : haut / gauche-droite / bas — equipes par couleur
+    const tbl=document.createElement('div');
+    tbl.style.cssText='position:relative;width:250px;height:220px;margin:6px auto;';
+    const posCss={0:'bottom:0;left:50%;transform:translateX(-50%);',
+                  1:'right:0;top:50%;transform:translateY(-50%);',
+                  2:'top:0;left:50%;transform:translateX(-50%);',
+                  3:'left:0;top:50%;transform:translateY(-50%);'};
+    const teamCol={0:'#bfe6c9',1:'#f3c1c1'};
+    for(let i=0;i<4;i++){
+      const p=PLAYERS && PLAYERS.find(x=>x.seat===i);
+      const free = !p || !p.human;
+      const b=document.createElement('div');
+      b.style.cssText='position:absolute;'+posCss[i]
+        +'min-width:74px;text-align:center;padding:8px 10px;border-radius:12px;font-size:12.5px;font-weight:700;'
+        +'border:2px solid '+(i===ME?'#f4d99a':'rgba(255,255,255,.35)')+';'
+        +'background:rgba(0,0,0,.45);color:'+teamCol[i%2]+';'
+        +(free && i!==ME ? 'cursor:pointer;' : '');
+      b.innerHTML=(p && p.human ? '👤 '+p.name : '🤖 chaise libre')+(i===ME?'<br><small>(toi)</small>':'');
+      if(free && i!==ME) b.onclick=()=>send({type:'sit', seat:i});
+      tbl.appendChild(b);
+    }
+    const net=document.createElement('div');
+    net.style.cssText='position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#8fae97;font-size:10.5px;text-align:center;';
+    net.innerHTML='équipe verte : haut+bas<br>équipe rouge : gauche+droite';
+    tbl.appendChild(net);
+    l.appendChild(tbl);
+
+    const go=document.createElement('button'); go.className='gold-btn'; go.textContent='LANCER LA PARTIE';
+    go.onclick=()=>send({type:'start'});
+    l.appendChild(go);
+    root.appendChild(l);
+    return;
+  }
+  if(!V) return;
+
+  // ---------- barre de score ----------
+  const myTeam = ME%2; // TEAM_OF = [0,1,0,1]
+  const hud=document.createElement('div'); hud.className='hud';
+  const row=document.createElement('div'); row.className='hud-scores';
+  const nous=V.scores[myTeam], eux=V.scores[1-myTeam];
+  row.innerHTML='<span class="team nous">Nous <small>'+Math.min(nous,1000)+'/1000</small></span>'
+    +'<span class="team eux">Eux <small>'+Math.min(eux,1000)+'/1000</small></span>';
+  hud.appendChild(row);
+  if(V.screen==='play' && V.taker!==null){
+    const r2=document.createElement('div'); r2.className='hud-round';
+    const tn = nameOf(V.taker);
+    const tTeam = (V.taker%2)===myTeam ? 'Nous':'Eux';
+    const obj = V.beloteBonus && V.beloteBonus.team!==null ? 91 : 82;
+    r2.textContent='Atout '+V.trumpSuit+' — pris par '+tn+' ('+tTeam+') — Manche : Nous '
+      +V.roundPts[myTeam]+' / Eux '+V.roundPts[1-myTeam]+' (objectif '+obj+')';
+    hud.appendChild(r2);
+  }
+  if(V.pendingLitige){
+    const lit=document.createElement('div'); lit.className='hud-round';
+    lit.style.cssText='color:#ffd98a;font-weight:800;';
+    lit.textContent='⚖ '+V.pendingLitige+' pts en litige — pour le vainqueur de cette donne';
+    hud.appendChild(lit);
+  }
+  root.appendChild(hud);
+
+  // ---------- mains adverses (dos) + noms ----------
+  const slots={top:'top-hand', left:'left-hand', right:'right-hand'};
+  for(let s=0;s<4;s++){
+    if(s===ME) continue;
+    const pos=screenSlot(s);
+    const wrap=document.createElement('div'); wrap.className=slots[pos];
+    for(let k=0;k<V.counts[s];k++){ const m=document.createElement('div'); m.className='mini-card'; wrap.appendChild(m); }
+    root.appendChild(wrap);
+    const lb=document.createElement('div'); lb.className='bot-label label-'+pos;
+    lb.textContent=nameOf(s);
+    root.appendChild(lb);
+  }
+
+  // pastilles d'enchere + tour
+  if(V.screen==='bidding' && V.bidDecisions){
+    const pos={bottom:'bm-bottom',right:'bm-right',top:'bm-top',left:'bm-left'};
+    for(let i=0;i<4;i++){
+      const d=V.bidDecisions[i];
+      let txt=null, extra='';
+      if(d==='prend'){ txt='PREND'; extra=' takes'; }
+      else if(d) txt=d;
+      else if(V.biddingTurn===i){ txt='…'; extra=' turn'; }
+      if(!txt) continue;
+      const el=document.createElement('div'); el.className='bid-mark '+pos[screenSlot(i)]+extra;
+      el.textContent=txt; root.appendChild(el);
+    }
+  }
+
+  // filigrane + badge du preneur
+  if((V.screen==='play'||V.screen==='roundEnd') && V.taker!==null && V.trumpSuit){
+    const pos=screenSlot(V.taker);
+    const wm=document.createElement('div'); wm.className='trump-watermark wm-'+pos;
+    wm.style.color=(V.trumpSuit==='\u2665'||V.trumpSuit==='\u2666')?'#c1272d':'#111';
+    wm.textContent=V.trumpSuit; root.appendChild(wm);
+    const tb=document.createElement('div'); tb.className='taker-badge taker-'+pos;
+    tb.style.color=wm.style.color; tb.textContent=V.trumpSuit; root.appendChild(tb);
+  }
+
+  // badge donneur
+  const dPos=['dealer-bottom','dealer-right','dealer-top','dealer-left'];
+  const db=document.createElement('div'); db.className='dealer-badge '+dPos[['bottom','right','top','left'].indexOf(screenSlot(V.dealer))];
+  db.textContent='D'; root.appendChild(db);
+
+  // bulle(s)
+  if(V.bubbles){
+    for(let i=0;i<4;i++){
+      if(!V.bubbles[i]) continue;
+      const b=document.createElement('div'); b.className='bubble bub-'+screenSlot(i);
+      b.textContent=V.bubbles[i]; root.appendChild(b);
+    }
+  }
+  if(V.banner){
+    const b=document.createElement('div'); b.className='banner'; b.textContent=V.banner;
+    root.appendChild(b);
+  }
+
+  // ---------- pli central ----------
+  if(V.screen==='play'){
+    const tw=document.createElement('div'); tw.className='trick-area';
+    for(const pl of V.trick){
+      const slot=document.createElement('div'); slot.className='trick-slot slot-'+screenSlot(pl.player);
+      slot.appendChild(cardEl(pl.card));
+      tw.appendChild(slot);
+    }
+    root.appendChild(tw);
+  }
+  if(V.screen==='bidding' && V.turnedCard){
+    const c=document.createElement('div'); c.className='center-area';
+    const back=document.createElement('div'); back.className='talon-back';
+    c.appendChild(back); c.appendChild(cardEl(V.turnedCard));
+    root.appendChild(c);
+  }
+
+  // ---------- ma main ----------
+  const hand=document.createElement('div'); hand.className='bottom-hand';
+  const sorted=V.hand.slice().sort((a,b)=>SUITS.indexOf(a.suit)-SUITS.indexOf(b.suit)
+    || ['7','8','9','10','V','D','R','A'].indexOf(a.rank)-['7','8','9','10','V','D','R','A'].indexOf(b.rank));
+  for(const c of sorted){
+    const legal=!V.yourTurnToPlay || (V.legal && V.legal.includes(c.id));
+    const el=cardEl(c, legal?'':'disabled', ()=>{ if(V.yourTurnToPlay) send({type:'play', id:c.id}); });
+    hand.appendChild(el);
+  }
+  root.appendChild(hand);
+
+  // ---------- barres d'action ----------
+  if(V.yourTurnToDeal){
+    bar(root, "C'est toi qui donnes — 2 ou 3 cartes en premier ?", [
+      ['3 EN PREMIER', ()=>send({type:'deal', first:3})],
+      ['2 EN PREMIER', ()=>send({type:'deal', first:2})]
+    ]);
+  }
+  if(V.yourTurnToBid){
+    if(V.biddingRound===1){
+      bar(root, '1er tour — tu prends, ou tu dis 1 ?', [
+        ['PRENDRE', ()=>send({type:'take'})],
+        ['1 (PASSE)', ()=>send({type:'pass'})]
+      ]);
+    }else{
+      const b=document.createElement('div'); b.className='bid-bar';
+      const t=document.createElement('div'); t.className='bid-text';
+      t.textContent='2e tour — choisis une couleur, ou dis 2';
+      b.appendChild(t);
+      for(const s of ['\u2665','\u2666','\u2663','\u2660']){
+        if(s===V.turnedCard.suit) continue;
+        const sb=document.createElement('button'); sb.className='suit-btn'; sb.textContent=s;
+        sb.style.color=(s==='\u2665'||s==='\u2666')?'#c1272d':'#1a1a1a';
+        sb.onclick=()=>send({type:'suit', suit:s});
+        b.appendChild(sb);
+      }
+      const pb=document.createElement('button'); pb.className='gold-btn small'; pb.textContent='2 (PASSE)';
+      pb.onclick=()=>send({type:'pass'}); b.appendChild(pb);
+      root.appendChild(b);
+    }
+  }
+
+  // ---------- boutons ronds ----------
+  if(V.lastTrick){
+    const lt=iconBtn('ib-r1','🂠','Dernière main',()=>{ showLast=true; render(); });
+    root.appendChild(lt);
+  }
+  const say=iconBtn('ib-r2','💬','Dire',()=>{ showChat=!showChat; render(); });
+  root.appendChild(say);
+  if(showChat){
+    const cb=document.createElement('div'); cb.className='chat-bar';
+    for(const ph of PHRASES_FLAT.slice(0,8)){
+      const b=document.createElement('button'); b.textContent=ph;
+      b.onclick=()=>{ showChat=false; send({type:'say', text:ph}); render(); };
+      cb.appendChild(b);
+    }
+    root.appendChild(cb);
+  }
+
+  // ---------- fin de manche / partie ----------
+  if(V.screen==='roundEnd' && V.roundResult){
+    const r=V.roundResult;
+    const o=overlay(root);
+    const attackIsUs=(r.attackTeam===myTeam);
+    const gN=r.gained[myTeam], gE=r.gained[1-myTeam];
+    let html='<h2>Fin de la manche</h2>';
+    if(r.litige){
+      html+='<p>⚖ <b>LITIGE — 81 partout !</b><br>Les 81 points du preneur sont remis en jeu à la donne suivante.</p>';
+    }else{
+      html+='<p>'+(attackIsUs?'Nous avons pris':'Eux ont pris')+' à '+V.trumpSuit+'.<br>'
+        +(r.made?'Contrat réussi !':'Contrat chuté !')+'</p>';
+      if(r.litigeAdded) html+='<p>⚖ Litige remporté : +'+r.litigeAdded+' points encaissés !</p>';
+    }
+    if(r.capotTeam!==null) html+='<p>🏆 CAPOT ! +90 points bonus</p>';
+    html+='<p><b>Nous : +'+gN+'</b> &nbsp; <b>Eux : +'+gE+'</b></p>';
+    o.panel.innerHTML=html;
+    const btn=document.createElement('button'); btn.className='gold-btn'; btn.textContent='MANCHE SUIVANTE';
+    btn.onclick=()=>send({type:'next'});
+    o.panel.appendChild(btn);
+  }
+  if(V.screen==='gameOver'){
+    const o=overlay(root);
+    const win = V.scores[myTeam]>=1000;
+    o.panel.innerHTML='<h2>Partie terminée !</h2><p>'+(win?'Nous remportons':'Eux remportent')+' la partie 🏆</p>'
+      +'<p>Nous : '+V.scores[myTeam]+' — Eux : '+V.scores[1-myTeam]+'</p>';
+  }
+  if(showLast && V.lastTrick){
+    const o=overlay(root, ()=>{ showLast=false; render(); });
+    o.panel.innerHTML='<h2>Dernière main</h2>';
+    const cross=document.createElement('div'); cross.className='cross-wrap';
+    for(const pl of V.lastTrick){
+      const slot=document.createElement('div'); slot.className='cross-slot cross-'+screenSlot(pl.player);
+      const who=document.createElement('div'); who.className='who'; who.textContent=nameOf(pl.player);
+      slot.appendChild(who); slot.appendChild(cardEl(pl.card));
+      cross.appendChild(slot);
+    }
+    o.panel.appendChild(cross);
+    const c=document.createElement('button'); c.className='gold-btn small'; c.textContent='FERMER';
+    c.onclick=()=>{ showLast=false; render(); };
+    o.panel.appendChild(c);
+  }
+}
+
+function nameOf(seat){
+  if(seat===ME) return 'Toi';
+  const p=PLAYERS && PLAYERS.find(x=>x.seat===seat);
+  return p ? p.name : 'Joueur';
+}
+function bar(root, text, buttons){
+  const b=document.createElement('div'); b.className='bid-bar';
+  const t=document.createElement('div'); t.className='bid-text'; t.textContent=text; b.appendChild(t);
+  for(const [label,fn] of buttons){
+    const bt=document.createElement('button'); bt.className='gold-btn small'; bt.textContent=label;
+    bt.onclick=fn; b.appendChild(bt);
+  }
+  root.appendChild(b);
+}
+function iconBtn(pos, icon, title, fn){
+  const d=document.createElement('div'); d.className='icon-btn '+pos; d.textContent=icon; d.title=title; d.onclick=fn;
+  return d;
+}
+function overlay(root, onBg){
+  const ov=document.createElement('div'); ov.className='overlay';
+  if(onBg) ov.onclick=(e)=>{ if(e.target===ov) onBg(); };
+  const panel=document.createElement('div'); panel.className='panel';
+  ov.appendChild(panel); root.appendChild(ov);
+  return {ov, panel};
+}
+
+// tentative de reconnexion au chargement
+(function(){
+  const saved=sessionStorage.getItem('belote');
+  if(saved){
+    try{ const {code,token}=JSON.parse(saved);
+      connect(()=>send({type:'join', code, token})); }catch(e){}
+  }
+  render();
+})();
+</script>
+</body>
+</html>

@@ -355,7 +355,8 @@ function render(){
         +'border:2px solid '+(i===ME?'#f4d99a':'rgba(255,255,255,.35)')+';'
         +'background:rgba(0,0,0,.45);color:'+teamCol[i%2]+';'
         +(free && i!==ME ? 'cursor:pointer;' : '');
-      b.innerHTML=(p && p.human ? '👤 '+p.name : '🤖 chaise libre')+(i===ME?'<br><small>(toi)</small>':'');
+      const teamName = (i%2)===0 ? 'équipe verte' : 'équipe rouge';
+      b.innerHTML=(p && p.human ? '👤 '+p.name : '🤖 chaise libre')+'<br><small>('+teamName+(i===ME?', toi':'')+')</small>';
       if(free && i!==ME) b.onclick=()=>send({type:'sit', seat:i});
       tbl.appendChild(b);
     }

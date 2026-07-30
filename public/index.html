@@ -193,6 +193,62 @@
 // les cartes des autres ne sont jamais transmises.
 // ============================================================================
 let ws=null, V=null, PLAYERS=null, ME=-1, CODE=null, TOKEN=null, STARTED=false;
+let clientToast=null;
+
+// ---------- AMBIANCES (client uniquement, aucune regle du jeu ici) ----------
+const THEMES = [
+  {name:'Classique', vars:{}},
+  {name:'Club anglais', vars:{'--wood1':'#8a6440','--wood2':'#5f4028','--wood-dark':'#2f1d10',
+    '--felt1':'#1a4733','--felt2':'#0a2418','--gold1':'#d4b878','--gold2':'#a8863f',
+    '--gold-border':'#4a3a1c','--ink':'#2a2010','--back':'#7d2231'}},
+  {name:'Café de quartier', vars:{'--wood1':'#9c6a4a','--wood2':'#6e4430','--wood-dark':'#3c2418',
+    '--felt1':'#2b4a3f','--felt2':'#132a24','--gold1':'#dba777','--gold2':'#c08552',
+    '--gold-border':'#4d3020','--ink':'#2e1c10','--back':'#96323c'}},
+  {name:'Anthracite', vars:{'--wood1':'#4d5559','--wood2':'#333a3d','--wood-dark':'#1a2022',
+    '--felt1':'#2f3a3d','--felt2':'#161d20','--gold1':'#d6c49b','--gold2':'#bfa77a',
+    '--gold-border':'#4a4436','--ink':'#22262a','--back':'#2c3e63'}},
+  {name:'Cuir & tabac', vars:{'--wood1':'#8a6b48','--wood2':'#5d452c','--wood-dark':'#2e2214',
+    '--felt1':'#3f3a2c','--felt2':'#211d15','--gold1':'#cfb47c','--gold2':'#b9975b',
+    '--gold-border':'#4a3c22','--ink':'#2b2313','--back':'#28513c'}}
+];
+const DEFAULT_VARS = {'--wood1':'#e8bb6e','--wood2':'#c8923f','--wood-dark':'#5b3a1a',
+  '--felt1':'#1f7a45','--felt2':'#0e4425','--gold1':'#e9bd72','--gold2':'#c8923f',
+  '--gold-border':'#5b3a1a','--ink':'#2a1a08','--back':'#a8202a'};
+let themeIndex = 0;
+function applyTheme(){
+  const el=document.documentElement; if(!el||!el.style) return;
+  const vars=Object.assign({}, DEFAULT_VARS, THEMES[themeIndex].vars);
+  for(const k in vars) el.style.setProperty(k, vars[k]);
+}
+function clientToastShow(msg, ms){
+  clientToast=msg; render();
+  setTimeout(()=>{ if(clientToast===msg){ clientToast=null; render(); } }, ms||1500);
+}
+function cycleTheme(){
+  themeIndex=(themeIndex+1)%THEMES.length;
+  applyTheme();
+  clientToastShow(THEMES[themeIndex].name);
+}
+
+// ---------- PLEIN ECRAN ----------
+function svgIcon(paths){
+  return '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" '
+       + 'stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">'+paths+'</svg>';
+}
+const ICON_EXPAND   = svgIcon('<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>');
+const ICON_CONTRACT = svgIcon('<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>');
+function isFullscreen(){ return !!(document.fullscreenElement || document.webkitFullscreenElement); }
+function toggleFullscreen(){
+  const el=document.documentElement; if(!el) return;
+  if(isFullscreen()){ const exit=document.exitFullscreen||document.webkitExitFullscreen; if(exit) exit.call(document); return; }
+  const req=el.requestFullscreen||el.webkitRequestFullscreen;
+  if(!req){ clientToastShow("Ajoutez le jeu à l'écran d'accueil pour le plein écran", 2800); return; }
+  const r=req.call(el);
+  if(r && r.catch) r.catch(()=>clientToastShow('Plein écran refusé par le navigateur', 2200));
+}
+document.addEventListener('fullscreenchange', render);
+document.addEventListener('webkitfullscreenchange', render);
+
 let showLast=false, showChat=false;
 
 const SUITS=['\u2665','\u2666','\u2663','\u2660'];
@@ -229,10 +285,11 @@ function connect(then){
 }
 function send(o){ if(ws && ws.readyState===1) ws.send(JSON.stringify(o)); }
 
+const SUIT_COLORS = {'\u2665':'#c1272d', '\u2666':'#e07b1f', '\u2663':'#1a1a1a', '\u2660':'#1c3f66'};
 function cardEl(c, cls, onClick){
-  const red = c.suit==='\u2665'||c.suit==='\u2666';
   const d=document.createElement('div');
-  d.className='card '+(red?'red':'blk')+(cls?' '+cls:'');
+  d.className='card'+(cls?' '+cls:'');
+  d.style.color = SUIT_COLORS[c.suit];
   d.innerHTML='<div class="r1">'+c.rank+c.suit+'</div><div class="suit-big">'+c.suit+'</div><div class="r2">'+c.rank+c.suit+'</div>';
   if(onClick) d.onclick=onClick;
   return d;
@@ -241,6 +298,19 @@ function cardEl(c, cls, onClick){
 function render(){
   const root=document.getElementById('root');
   root.innerHTML='';
+
+  // boutons ronds ambiance + plein ecran : disponibles sur TOUS les ecrans, y compris l'accueil
+  const tb=iconBtn('ib-l1','\u25D0','Changer l\'ambiance', cycleTheme);
+  root.appendChild(tb);
+  const fb=document.createElement('div'); fb.className='icon-btn ib-l2';
+  fb.innerHTML = isFullscreen() ? ICON_CONTRACT : ICON_EXPAND;
+  fb.title = isFullscreen() ? 'Quitter le plein écran' : 'Plein écran';
+  fb.onclick = toggleFullscreen;
+  root.appendChild(fb);
+  if(clientToast){
+    const tt=document.createElement('div'); tt.className='theme-toast'; tt.textContent=clientToast;
+    root.appendChild(tt);
+  }
 
   // ---------- accueil ----------
   if(ME<0){
@@ -311,6 +381,14 @@ function render(){
   row.innerHTML='<span class="team nous">Nous <small>'+Math.min(nous,1000)+'/1000</small></span>'
     +'<span class="team eux">Eux <small>'+Math.min(eux,1000)+'/1000</small></span>';
   hud.appendChild(row);
+
+  // code de la partie, toujours visible (meme en cours de jeu) pour qu'un ami puisse rejoindre
+  if(CODE){
+    const cw=document.createElement('div'); cw.className='hud-round';
+    cw.style.color='#f4d99a';
+    cw.innerHTML='Code de la partie : <b style="letter-spacing:2px;font-size:13px">'+CODE+'</b>';
+    hud.appendChild(cw);
+  }
   if(V.screen==='play' && V.taker!==null){
     const r2=document.createElement('div'); r2.className='hud-round';
     const tn = nameOf(V.taker);
@@ -433,7 +511,7 @@ function render(){
       for(const s of ['\u2665','\u2666','\u2663','\u2660']){
         if(s===V.turnedCard.suit) continue;
         const sb=document.createElement('button'); sb.className='suit-btn'; sb.textContent=s;
-        sb.style.color=(s==='\u2665'||s==='\u2666')?'#c1272d':'#1a1a1a';
+        sb.style.color=SUIT_COLORS[s];
         sb.onclick=()=>send({type:'suit', suit:s});
         b.appendChild(sb);
       }
@@ -532,6 +610,7 @@ function overlay(root, onBg){
 
 // tentative de reconnexion au chargement
 (function(){
+  applyTheme();
   const saved=sessionStorage.getItem('belote');
   if(saved){
     try{ const {code,token}=JSON.parse(saved);

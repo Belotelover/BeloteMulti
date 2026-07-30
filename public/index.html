@@ -264,27 +264,54 @@ function screenSlot(seat){
   return ['bottom','right','top','left'][d===0?0: d===1?1: d===2?2:3];
 }
 
+let myName=''; // conserve meme AVANT d'avoir un siege/jeton, pour pouvoir se reconnecter en attente
+let disconnected=false;
+
 function connect(then){
   const proto = location.protocol==='https:'?'wss:':'ws:';
   ws = new WebSocket(proto+'//'+location.host);
-  ws.onopen=then;
+  ws.onopen=()=>{ disconnected=false; render(); if(then) then(); };
   ws.onmessage=(ev)=>{
     const m=JSON.parse(ev.data);
     if(m.type==='error'){ alert(m.error); return; }
-    if(m.type==='choose-seat'){ CODE=m.code; PLAYERS=m.players; ME=-1; STARTED=false; render(); return; }
+    if(m.type==='choose-seat'){ CODE=m.code; PLAYERS=m.players; ME=-1; STARTED=false;
+      sessionStorage.setItem('belote', JSON.stringify({code:CODE, name:myName}));
+      render(); return; }
     if(m.type==='joined'){ CODE=m.code; ME=m.seat; TOKEN=m.token; STARTED=m.started;
-      sessionStorage.setItem('belote', JSON.stringify({code:CODE, token:TOKEN}));
+      sessionStorage.setItem('belote', JSON.stringify({code:CODE, token:TOKEN, name:myName}));
       render(); return; }
     if(m.type==='lobby'){ PLAYERS=m.players; STARTED=m.started; render(); return; }
     if(m.type==='view'){ V=m.view; PLAYERS=m.players; STARTED=true; render(); return; }
   };
-  ws.onclose=()=>{ setTimeout(()=>{ // reconnexion automatique avec le jeton
-    const saved=sessionStorage.getItem('belote');
-    if(saved){ const {code,token}=JSON.parse(saved);
-      connect(()=>ws.send(JSON.stringify({type:'join', code, token}))); }
-  }, 1200); };
+  ws.onclose=()=>{
+    disconnected=true; render();
+    setTimeout(()=>{
+      // reconnexion automatique : avec le jeton si on avait deja un siege, sinon en tant
+      // qu'"en attente" (choose-seat) — c'est ce second cas qui manquait, laissant un
+      // joueur qui n'avait pas encore choisi sa chaise bloque sans aucun moyen de revenir
+      const saved=sessionStorage.getItem('belote');
+      if(!saved) return;
+      const {code,token,name}=JSON.parse(saved);
+      connect(()=>{
+        if(token) send({type:'join', code, token});
+        else send({type:'join', code, name: name||myName});
+      });
+    }, 1200);
+  };
 }
-function send(o){ if(ws && ws.readyState===1) ws.send(JSON.stringify(o)); }
+function send(o){
+  if(ws && ws.readyState===1){ ws.send(JSON.stringify(o)); return; }
+  // la connexion est tombee au mauvais moment (mise en veille mobile, reseau) : on se
+  // reconnecte ET on REJOUE l'action initiale (ex: le 'sit' du clic) sur la nouvelle
+  // connexion, sinon la reconnexion reussit mais le clic de la personne reste sans effet
+  const saved=sessionStorage.getItem('belote');
+  if(!saved) return;
+  const {code,token,name}=JSON.parse(saved);
+  connect(()=>{
+    ws.send(JSON.stringify(token ? {type:'join', code, token} : {type:'join', code, name: name||myName}));
+    ws.send(JSON.stringify(o));
+  });
+}
 
 const SUIT_COLORS = {'\u2665':'#c1272d', '\u2666':'#e07b1f', '\u2663':'#1a1a1a', '\u2660':'#1c3f66'};
 function cardEl(c, cls, onClick){
@@ -316,6 +343,12 @@ function render(){
     const tt=document.createElement('div'); tt.className='theme-toast'; tt.textContent=clientToast;
     root.appendChild(tt);
   }
+  if(disconnected){
+    const dc=document.createElement('div'); dc.className='theme-toast';
+    dc.style.background='rgba(160,30,30,.88)';
+    dc.textContent='Connexion perdue — reconnexion en cours…';
+    root.appendChild(dc);
+  }
 
   // ---------- accueil ----------
   if(!CODE){
@@ -324,11 +357,11 @@ function render(){
     const name=document.createElement('input'); name.placeholder='Ton prénom'; name.maxLength=14;
     name.style.cssText='padding:10px;border-radius:10px;border:2px solid #5b3a1a;font-size:15px;text-align:center;';
     const bC=document.createElement('button'); bC.className='gold-btn'; bC.textContent='CRÉER UNE PARTIE';
-    bC.onclick=()=>connect(()=>send({type:'create', name:name.value}));
+    bC.onclick=()=>{ myName=name.value; connect(()=>send({type:'create', name:myName})); };
     const code=document.createElement('input'); code.placeholder='CODE'; code.maxLength=4;
     code.style.cssText='padding:10px;border-radius:10px;border:2px solid #5b3a1a;font-size:15px;text-align:center;text-transform:uppercase;width:90px;';
     const bJ=document.createElement('button'); bJ.className='gold-btn'; bJ.textContent='REJOINDRE';
-    bJ.onclick=()=>connect(()=>send({type:'join', code:code.value, name:name.value}));
+    bJ.onclick=()=>{ myName=name.value; connect(()=>send({type:'join', code:code.value.toUpperCase(), name:myName})); };
     home.appendChild(name); home.appendChild(bC);
     const row=document.createElement('div'); row.style.cssText='display:flex;gap:10px;align-items:center;';
     row.appendChild(code); row.appendChild(bJ); home.appendChild(row);

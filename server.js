@@ -127,9 +127,9 @@ function startGame(room){
   room.started = true;
   const E=room.E;
   E.newGame();
-  // noms des bots pour les sieges non tenus (le moteur en a deja pour 1,2,3 ;
-  // si le siege 0 est un bot on lui donne un nom aussi)
-  if(!room.seats[0]) E.S.bots[0] = { name:'Lucien', style:'Équilibré', threshold:21 };
+  // personnalite de secours pour tout siege bot des le depart que le moteur n'aurait
+  // pas deja couvert (il ne couvre nativement que les sieges 1,2,3 par defaut)
+  for(let i=0;i<4;i++) if(!room.seats[i]) ensureBotPersona(E, i);
   syncHumans(room);
   E.S.screen='play-init';
   E.beginRound();
@@ -149,6 +149,20 @@ function autoAdvanceIfEmpty(room){
   }
 }
 
+// noms de secours pour un siege humain qui n'avait jamais eu de personnalite de bot
+// (normal : seuls les sieges bots DES LE DEBUT en recoivent une via shuffledBotSeats())
+const FALLBACK_BOT_NAMES = [
+  {name:'Lucien', style:'Équilibré', threshold:21},
+  {name:'Nadia',  style:'Prudente',  threshold:25},
+  {name:'Théo',   style:'Agressif',  threshold:19}
+];
+function ensureBotPersona(E, seatIdx){
+  if(!E.S || !E.S.bots) return;
+  if(!E.S.bots[seatIdx]){
+    E.S.bots[seatIdx] = FALLBACK_BOT_NAMES[seatIdx % FALLBACK_BOT_NAMES.length];
+  }
+}
+
 function onDisconnect(room, seatIdx){
   const seat = room.seats[seatIdx];
   if(!seat) return;
@@ -156,6 +170,10 @@ function onDisconnect(room, seatIdx){
   syncHumans(room);
   const E=room.E, S=E.S;
   if(!S) return;
+  // le siege devient piloté par un bot le temps que le joueur revienne : il lui faut
+  // une personnalite pour que la logique des bots (evaluateSuit, botWantsTrump, etc.)
+  // fonctionne, sinon le moteur plante en cherchant des reglages qui n'existent pas
+  ensureBotPersona(E, seatIdx);
   // si le jeu attendait CE joueur, on repart
   if(S.screen==='bidding' && S.biddingTurn===seatIdx) E.FX.later(()=>{ requireFn(E,'advanceBidding')(); }, 400);
   if(S.screen==='play' && E.currentPlayerToPlay()===seatIdx) E.FX.later(()=>{ requireFn(E,'playTurn')(); }, 400);
@@ -193,6 +211,12 @@ wss.on('connection', (ws)=>{
   ws.on('message', (raw)=>{
     let msg; try{ msg=JSON.parse(raw); }catch(e){ return; }
     if(ws._room) ws._room.lastActivity=Date.now();
+
+    // battement de coeur : repond a TOUT moment (meme avant de rejoindre une partie ou
+    // avant d'avoir choisi un siege) — c'est ce qui permet au client de detecter une
+    // connexion "zombie" (readyState toujours OPEN mais tuyau reellement mort, frequent
+    // sur mobile en arriere-plan / changement wifi-4G) et de reconnecter proactivement
+    if(msg.type==='ping'){ send(ws,{type:'pong'}); return; }
 
     // --- creation d'une partie : le createur choisit aussi sa place (table vide, trivial) ---
     if(msg.type==='create'){
@@ -254,7 +278,6 @@ wss.on('connection', (ws)=>{
         break;
       }
       case 'next':   E.nextRoundOrEnd(); break;
-      case 'ping':   break;
       case 'say': {
         const all=[].concat(E.PHRASES.praise,E.PHRASES.regret,E.PHRASES.cheer,E.PHRASES.tease,E.PHRASES.polite);
         if(all.includes(msg.text)) E.say(mySeat, msg.text); // uniquement les phrases fermees

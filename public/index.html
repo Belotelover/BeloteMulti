@@ -267,12 +267,28 @@ function screenSlot(seat){
 let myName=''; // conserve meme AVANT d'avoir un siege/jeton, pour pouvoir se reconnecter en attente
 let disconnected=false;
 
+let lastPong=0, heartbeatTimer=null, watchdogTimer=null;
+function startHeartbeat(){
+  stopHeartbeat();
+  lastPong = Date.now();
+  heartbeatTimer = setInterval(()=>{ if(ws && ws.readyState===1) ws.send(JSON.stringify({type:'ping'})); }, 6000);
+  watchdogTimer = setInterval(()=>{
+    // aucun pong recu depuis trop longtemps : le tuyau est mort meme si readyState dit
+    // encore "ouvert" (cas frequent sur mobile, wifi<->4G, mise en arriere-plan). On force
+    // une vraie fermeture pour declencher la reconnexion, plutot que de laisser les clics
+    // partir dans le vide en silence.
+    if(Date.now()-lastPong > 16000){ try{ ws && ws.close(); }catch(e){} }
+  }, 4000);
+}
+function stopHeartbeat(){ if(heartbeatTimer) clearInterval(heartbeatTimer); if(watchdogTimer) clearInterval(watchdogTimer); }
+
 function connect(then){
   const proto = location.protocol==='https:'?'wss:':'ws:';
   ws = new WebSocket(proto+'//'+location.host);
-  ws.onopen=()=>{ disconnected=false; render(); if(then) then(); };
+  ws.onopen=()=>{ disconnected=false; startHeartbeat(); render(); if(then) then(); };
   ws.onmessage=(ev)=>{
     const m=JSON.parse(ev.data);
+    if(m.type==='pong'){ lastPong=Date.now(); return; }
     if(m.type==='error'){ alert(m.error); return; }
     if(m.type==='choose-seat'){ CODE=m.code; PLAYERS=m.players; ME=-1; STARTED=false;
       sessionStorage.setItem('belote', JSON.stringify({code:CODE, name:myName}));
@@ -284,6 +300,7 @@ function connect(then){
     if(m.type==='view'){ V=m.view; PLAYERS=m.players; STARTED=true; render(); return; }
   };
   ws.onclose=()=>{
+    stopHeartbeat();
     disconnected=true; render();
     setTimeout(()=>{
       // reconnexion automatique : avec le jeton si on avait deja un siege, sinon en tant
@@ -378,32 +395,27 @@ function render(){
     l.innerHTML='<h2 style="color:#f4d99a">Code de la partie : <b>'+CODE+'</b></h2>'
       +'<p>'+intro+'<br>Les sièges 0-2 et 1-3 sont partenaires ; les chaises vides seront des bots.</p>';
 
-    // table schematique : haut / gauche-droite / bas — equipes par couleur
+    // liste simple en colonne, une chaise par ligne : aucun risque de chevauchement
+    // (l'ancien schema en croix, positionne en absolu, se chevauchait sur certains ecrans)
     const tbl=document.createElement('div');
-    tbl.style.cssText='position:relative;width:250px;height:220px;margin:6px auto;';
-    const posCss={0:'bottom:0;left:50%;transform:translateX(-50%);',
-                  1:'right:0;top:50%;transform:translateY(-50%);',
-                  2:'top:0;left:50%;transform:translateX(-50%);',
-                  3:'left:0;top:50%;transform:translateY(-50%);'};
+    tbl.style.cssText='display:flex;flex-direction:column;gap:10px;width:100%;max-width:280px;margin:8px auto;';
     const teamCol={0:'#bfe6c9',1:'#f3c1c1'};
-    for(let i=0;i<4;i++){
+    const seatOrder=[0,2,1,3]; // regroupe visuellement par equipe : verte puis rouge
+    for(const i of seatOrder){
       const p=PLAYERS && PLAYERS.find(x=>x.seat===i);
       const free = !p || !p.human;
       const b=document.createElement('div');
-      b.style.cssText='position:absolute;'+posCss[i]
-        +'min-width:74px;text-align:center;padding:8px 10px;border-radius:12px;font-size:12.5px;font-weight:700;'
+      b.style.cssText='display:flex;justify-content:space-between;align-items:center;'
+        +'padding:10px 16px;border-radius:12px;font-size:13.5px;font-weight:700;'
         +'border:2px solid '+(i===ME?'#f4d99a':'rgba(255,255,255,.35)')+';'
         +'background:rgba(0,0,0,.45);color:'+teamCol[i%2]+';'
         +(free && i!==ME ? 'cursor:pointer;' : '');
-      const teamName = (i%2)===0 ? 'équipe verte' : 'équipe rouge';
-      b.innerHTML=(p && p.human ? '👤 '+p.name : '🤖 chaise libre')+'<br><small>('+teamName+(i===ME?', toi':'')+')</small>';
+      const teamName = (i%2)===0 ? 'Équipe verte' : 'Équipe rouge';
+      b.innerHTML='<span>'+(p && p.human ? '👤 '+p.name : '🤖 chaise libre')+(i===ME?' <small>(toi)</small>':'')+'</span>'
+        +'<small style="opacity:.85">'+teamName+'</small>';
       if(free && i!==ME) b.onclick=()=>send({type:'sit', seat:i});
       tbl.appendChild(b);
     }
-    const net=document.createElement('div');
-    net.style.cssText='position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#8fae97;font-size:10.5px;text-align:center;';
-    net.innerHTML='équipe verte : haut+bas<br>équipe rouge : gauche+droite';
-    tbl.appendChild(net);
     l.appendChild(tbl);
 
     if(ME>=0){

@@ -266,6 +266,7 @@ function screenSlot(seat){
 
 let myName=''; // conserve meme AVANT d'avoir un siege/jeton, pour pouvoir se reconnecter en attente
 let disconnected=false;
+let intentionalClose=false;
 
 let lastPong=0, heartbeatTimer=null, watchdogTimer=null;
 function startHeartbeat(){
@@ -301,6 +302,7 @@ function connect(then){
   };
   ws.onclose=()=>{
     stopHeartbeat();
+    if(intentionalClose){ intentionalClose=false; return; } // depart volontaire (nouvelle partie) : pas d'alerte
     disconnected=true; render();
     setTimeout(()=>{
       // reconnexion automatique : avec le jeton si on avait deja un siege, sinon en tant
@@ -619,6 +621,16 @@ function render(){
     const win = V.scores[myTeam]>=1000;
     o.panel.innerHTML='<h2>Partie terminée !</h2><p>'+(win?'Nous remportons':'Eux remportent')+' la partie 🏆</p>'
       +'<p>Nous : '+V.scores[myTeam]+' — Eux : '+V.scores[1-myTeam]+'</p>';
+    const back=document.createElement('button'); back.className='gold-btn'; back.textContent='NOUVELLE PARTIE';
+    back.onclick=()=>{
+      stopHeartbeat();
+      intentionalClose=true;
+      try{ ws && ws.close(); }catch(e){}
+      sessionStorage.removeItem('belote');
+      ws=null; V=null; PLAYERS=null; ME=-1; CODE=null; TOKEN=null; STARTED=false; myName=''; disconnected=false;
+      render();
+    };
+    o.panel.appendChild(back);
   }
   if(showLast && V.lastTrick){
     const o=overlay(root, ()=>{ showLast=false; render(); });

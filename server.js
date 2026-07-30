@@ -127,9 +127,15 @@ function startGame(room){
   room.started = true;
   const E=room.E;
   E.newGame();
-  // personnalite de secours pour tout siege bot des le depart que le moteur n'aurait
-  // pas deja couvert (il ne couvre nativement que les sieges 1,2,3 par defaut)
-  for(let i=0;i<4;i++) if(!room.seats[i]) ensureBotPersona(E, i);
+  // Le moteur (concu pour le solo) assigne par defaut une personnalite de bot fixe aux
+  // sieges 1,2,3 sans savoir qu'un humain peut s'y trouver en multi. Sans correction, ses
+  // textes internes (bandeau, "X remporte le pli"...) garderaient le nom du bot meme si
+  // un vrai joueur y est assis. On corrige : nom du joueur pour les sieges humains,
+  // personnalite de secours pour les sieges reellement tenus par un bot.
+  for(let i=0;i<4;i++){
+    if(room.seats[i]) E.S.bots[i] = { name: room.seats[i].name, style:'Humain', threshold:0 };
+    else ensureBotPersona(E, i);
+  }
   syncHumans(room);
   E.S.screen='play-init';
   E.beginRound();
@@ -158,7 +164,10 @@ const FALLBACK_BOT_NAMES = [
 ];
 function ensureBotPersona(E, seatIdx){
   if(!E.S || !E.S.bots) return;
-  if(!E.S.bots[seatIdx]){
+  const cur = E.S.bots[seatIdx];
+  // pas de personnalite du tout, OU un pseudo humain laisse orphelin par un depart :
+  // dans les deux cas il faut une vraie personnalite de bot (style + seuil) pour jouer
+  if(!cur || cur.style==='Humain'){
     E.S.bots[seatIdx] = FALLBACK_BOT_NAMES[seatIdx % FALLBACK_BOT_NAMES.length];
   }
 }
@@ -251,9 +260,12 @@ wss.on('connection', (ws)=>{
     // --- choisir sa place : fonctionne aussi bien pour le tout premier choix (pas encore
     // assis, on vient de rejoindre) que pour changer de siege plus tard dans le lobby ---
     if(msg.type==='sit'){
-      if(myRoom.started) return;
       const t = msg.seat|0;
       if(t<0 || t>3 || myRoom.seats[t]!==null) return; // la chaise doit etre libre
+      // en cours de partie, un joueur DEJA assis ne change plus de place (verrou),
+      // mais un NOUVEL arrivant peut s'installer sur une chaise tenue par un bot :
+      // c'est tout l'interet de pouvoir rejoindre a n'importe quel moment
+      if(myRoom.started && ws._seat>=0) return;
       seatConnection(myRoom, ws, t);
       return;
     }
@@ -314,13 +326,20 @@ function seatConnection(room, ws, t){
   }
   ws._seat=t;
   syncHumans(room);
+  // meme correction que dans startGame() : si ce siege prend vie en cours de partie
+  // (remplace un bot), le moteur doit connaitre son vrai nom pour ses textes internes
+  if(room.E.S) room.E.S.bots[t] = { name: room.seats[t].name, style:'Humain', threshold:0 };
   send(ws,{type:'joined', code:room.code, seat:t, token:room.seats[t].token, started:room.started});
-  broadcastLobby(room);
+  if(room.started){
+    broadcast(room); // partie en cours : il recoit immediatement sa vue du jeu et joue
+  }else{
+    broadcastLobby(room);
+  }
   return true;
 }
 
 function broadcastLobby(room){
-  for(const s of room.seats) if(s && s.ws) send(s.ws,{type:'lobby', players:playersInfo(room), started:false});
+  for(const s of room.seats) if(s && s.ws) send(s.ws,{type:'lobby', players:playersInfo(room), started:room.started});
   for(const w of room.pending) send(w,{type:'choose-seat', code:room.code, players:playersInfo(room)});
 }
 

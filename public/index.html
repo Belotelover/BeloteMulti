@@ -6,7 +6,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#0e4425">
-<title>Belote entre amis</title>
+<title>Belote du Gang</title>
 <style>
   :root{
     --wood1:#e8bb6e; --wood2:#c8923f; --wood-dark:#5b3a1a;
@@ -183,7 +183,7 @@
 </head>
 <body>
 <div id="app">
-  <header><h1>Belote</h1></header>
+  <header><h1>Belote du Gang</h1></header>
   <div id="root" class="table"></div>
 </div>
 <script>
@@ -252,7 +252,7 @@ document.addEventListener('webkitfullscreenchange', render);
 let showLast=false, showChat=false;
 
 const SUITS=['\u2665','\u2666','\u2663','\u2660'];
-const PHRASES_FLAT=['Bien joué !','Joli coup','Chapeau','Bien vu','Dommage','Presque !','Aïe','Pas de chance','Allez là !','On y va','Courage','Regarde la route 😄','Tu dors ?','Ça fait mal','Salut !','Bonne partie','Merci'];
+const PHRASES_FLAT=['Bien joué !','Joli coup','Chapeau','Bien vu','Regarde la route 😄','Allez là !','Tu dors ?','Ça fait mal','Dommage','Presque !','Aïe','Pas de chance','On y va','Courage','Salut !','Bonne partie','Merci'];
 
 function relPos(seat){ // position ECRAN vue de MON siege : moi en bas
   return (seat - ME + 4) % 4; // 0=bas(moi) ; l'ordre horaire du moteur est 0,3,2,1
@@ -372,7 +372,7 @@ function render(){
   // ---------- accueil ----------
   if(!CODE){
     const home=document.createElement('div'); home.className='home-screen';
-    home.innerHTML='<p>Belote entre amis — les sièges vides sont tenus par les bots.</p>';
+    home.innerHTML='<p>Belote du Gang — les sièges vides sont tenus par les bots.</p>';
     const name=document.createElement('input'); name.placeholder='Ton prénom'; name.maxLength=14;
     name.style.cssText='padding:10px;border-radius:10px;border:2px solid #5b3a1a;font-size:15px;text-align:center;';
     const bC=document.createElement('button'); bC.className='gold-btn'; bC.textContent='CRÉER UNE PARTIE';
@@ -409,20 +409,20 @@ function render(){
     function seatChip(i){
       const p=PLAYERS && PLAYERS.find(x=>x.seat===i);
       const isHuman = p && p.human;
-      const isDisco = p && p.disconnected;           // humain parti, un bot le remplace : reclamable
-      const isFree  = !isHuman || isDisco;           // on peut s'y asseoir si vide OU deconnecte
+      const isFree  = !isHuman;                       // toute chaise non-humaine est libre (bot)
+      const isReplacementBot = !isHuman && p && /^BOT /.test(p.name); // bot qui remplace un parti
       const chip=document.createElement('div');
       chip.style.cssText='width:100%;min-height:62px;display:flex;flex-direction:column;'
         +'align-items:center;justify-content:center;text-align:center;padding:8px 6px;border-radius:12px;'
         +'font-size:12.5px;font-weight:700;line-height:1.25;'
-        +'border:2px solid '+(i===ME?'#f4d99a':(isDisco?'#e0a94a':'rgba(255,255,255,.3)'))+';'
+        +'border:2px solid '+(i===ME?'#f4d99a':(isReplacementBot?'#e0a94a':'rgba(255,255,255,.3)'))+';'
         +'background:rgba(0,0,0,'+(isFree?'.35':'.55')+');color:'+teamCol[i%2]+';'
         +(isFree && i!==ME ? 'cursor:pointer;' : '');
       chip.style.gridArea=cellOf[i];
 
       let label, sub;
-      if(isHuman && !isDisco){ label='👤 '+p.name; sub = i===ME ? '(toi)' : 'prêt'; }
-      else if(isDisco){ label='⚠️ '+p.name; sub='déconnecté — clique pour reprendre'; }
+      if(isHuman){ label='👤 '+p.name; sub = i===ME ? '(toi)' : 'prêt'; }
+      else if(isReplacementBot){ label='🤖 '+p.name; sub='clique pour prendre la place'; }
       else { label='🤖 chaise libre'; sub='clique pour t\'asseoir'; }
       const teamName = (i%2)===0 ? 'verte' : 'rouge';
       chip.innerHTML='<div>'+label+'</div><small style="opacity:.8;font-weight:400">'+sub+'</small>'
@@ -440,7 +440,7 @@ function render(){
     l.appendChild(grid);
 
     // compteur de joueurs prêts, pour être sûr que tout le monde est bien la avant de lancer
-    const humansReady = (PLAYERS||[]).filter(p=>p.human && !p.disconnected).length;
+    const humansReady = (PLAYERS||[]).filter(p=>p.human).length;
     const status=document.createElement('p');
     status.style.cssText='color:#dfeee2;font-size:12.5px;margin:6px 0;';
     status.innerHTML='👤 '+humansReady+' joueur'+(humansReady>1?'s':'')+' en place'
@@ -466,11 +466,13 @@ function render(){
     +'<span class="team eux">Eux <small>'+Math.min(eux,1000)+'/1000</small></span>';
   hud.appendChild(row);
 
-  // code de la partie, toujours visible (meme en cours de jeu) pour qu'un ami puisse rejoindre
+  // code de la partie + TON pseudo, toujours visibles (meme en cours de jeu) : le code pour
+  // qu'un ami rejoigne, le pseudo pour te reconnecter facilement au meme siege si tu bugues
   if(CODE){
     const cw=document.createElement('div'); cw.className='hud-round';
     cw.style.color='#f4d99a';
-    cw.innerHTML='Code de la partie : <b style="letter-spacing:2px;font-size:13px">'+CODE+'</b>';
+    const who = myName ? ' · toi : <b>'+myName+'</b>' : '';
+    cw.innerHTML='Code : <b style="letter-spacing:2px;font-size:13px">'+CODE+'</b>'+who;
     hud.appendChild(cw);
   }
   if(V.screen==='play' && V.taker!==null){
@@ -500,7 +502,7 @@ function render(){
     root.appendChild(wrap);
     const lb=document.createElement('div'); lb.className='bot-label label-'+pos;
     const pinfo = PLAYERS && PLAYERS.find(x=>x.seat===s);
-    const icon = (pinfo && pinfo.human && !pinfo.disconnected) ? '👤 ' : '🤖 ';
+    const icon = (pinfo && pinfo.human) ? '👤 ' : '🤖 ';
     lb.textContent = icon + nameOf(s);
     root.appendChild(lb);
   }
@@ -713,8 +715,9 @@ function overlay(root, onBg){
   applyTheme();
   const saved=sessionStorage.getItem('belote');
   if(saved){
-    try{ const {code,token}=JSON.parse(saved);
-      connect(()=>send({type:'join', code, token})); }catch(e){}
+    try{ const {code,token,name}=JSON.parse(saved);
+      if(name) myName=name; // restaure le pseudo pour l'affichage et une reconnexion par nom
+      connect(()=>send(token ? {type:'join', code, token} : {type:'join', code, name})); }catch(e){}
   }
   render();
 })();

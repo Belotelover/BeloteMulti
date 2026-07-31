@@ -111,16 +111,54 @@ function broadcast(room){
       send(seat.ws, { type:'view', view: E.viewFor(i), players: playersInfo(room) });
     }
   }
+  armInactivityTimer(room);
+}
+
+// Quel siege HUMAIN doit agir maintenant (enchere ou jeu) ? -1 si c'est un bot ou personne.
+function humanSeatToAct(room){
+  const E=room.E, S=E.S;
+  if(!S) return -1;
+  let seat=-1;
+  if(S.screen==='bidding') seat=S.biddingTurn;
+  else if(S.screen==='play') seat=E.currentPlayerToPlay();
+  else if(S.screen==='dealChoice') seat=S.dealer;
+  else return -1;
+  // seat doit etre un HUMAIN reellement connecte (un siege occupe avec une socket vivante)
+  const s=room.seats[seat];
+  return (s && s.ws) ? seat : -1;
+}
+
+// Si un humain doit jouer mais reste inactif trop longtemps, on le fait remplacer par un bot
+// pour CE coup (comme une deconnexion), afin de ne jamais bloquer la table. Timer rearme a
+// chaque broadcast : tant que le joueur agit, il n'est jamais remplace.
+const INACTIVITY_MS = parseInt(process.env.INACTIVITY_MS||'40000', 10);
+function armInactivityTimer(room){
+  if(room.inactivityTimer){ clearTimeout(room.inactivityTimer); room.inactivityTimer=null; }
+  const seat = humanSeatToAct(room);
+  if(seat<0) return;
+  room.inactivitySeat = seat;
+  room.inactivityTimer = setTimeout(()=>{
+    // on revalide que c'est toujours le meme humain qui bloque (rien n'a bouge entre-temps)
+    if(humanSeatToAct(room)!==seat) return;
+    // meme traitement qu'une deconnexion : le siege devient "BOT <prenom>" et le bot joue
+    onInactivityTimeout(room, seat);
+  }, INACTIVITY_MS);
+}
+function onInactivityTimeout(room, seat){
+  const s=room.seats[seat];
+  if(!s) return;
+  // on coupe proprement sa socket (il pourra revenir via son pseudo -> "BOT <prenom>")
+  const ws=s.ws;
+  if(ws){ try{ ws._inactivityKicked=true; ws.close(); }catch(e){} }
+  onDisconnect(room, seat); // libere le siege, installe "BOT <prenom>", relance le jeu
 }
 
 function playersInfo(room){
   return [0,1,2,3].map(i=>{
     const s=room.seats[i];
-    // un siege humain deconnecte est signale (disconnected:true) : un bot le pilote pour
-    // ne pas bloquer la partie, mais la place reste celle du joueur, qui peut la reprendre
-    if(s) return { seat:i, name:s.name, human:true, connected: !!s.ws, disconnected: !!s.disconnected };
+    if(s) return { seat:i, name:s.name, human:true, connected: !!s.ws };
     const bots = room.E.S && room.E.S.bots;
-    return { seat:i, name: bots && bots[i] ? bots[i].name : 'Bot', human:false, connected:true, disconnected:false };
+    return { seat:i, name: bots && bots[i] ? bots[i].name : 'Bot', human:false, connected:true };
   });
 }
 
@@ -160,33 +198,39 @@ function autoAdvanceIfEmpty(room){
 // noms de secours pour un siege humain qui n'avait jamais eu de personnalite de bot
 // (normal : seuls les sieges bots DES LE DEBUT en recoivent une via shuffledBotSeats())
 const FALLBACK_BOT_NAMES = [
-  {name:'Lucien', style:'Équilibré', threshold:21},
-  {name:'Nadia',  style:'Prudente',  threshold:25},
-  {name:'Théo',   style:'Agressif',  threshold:19}
+  {name:'Gilou', style:'Équilibré', threshold:21},
+  {name:'Béa',   style:'Prudente',  threshold:25},
+  {name:'Mimi',  style:'Agressif',  threshold:19}
 ];
 function ensureBotPersona(E, seatIdx){
   if(!E.S || !E.S.bots) return;
   const cur = E.S.bots[seatIdx];
   // pas de personnalite du tout, OU un pseudo humain laisse orphelin par un depart :
-  // dans les deux cas il faut une vraie personnalite de bot (style + seuil) pour jouer
+  // dans les deux cas il faut une vraie personnalite de bot (style + seuil) pour jouer.
+  // On CLONE le modele (sinon renommer le bot modifierait l'objet partage pour tous).
   if(!cur || cur.style==='Humain'){
-    E.S.bots[seatIdx] = FALLBACK_BOT_NAMES[seatIdx % FALLBACK_BOT_NAMES.length];
+    E.S.bots[seatIdx] = Object.assign({}, FALLBACK_BOT_NAMES[seatIdx % FALLBACK_BOT_NAMES.length]);
   }
 }
 
 function onDisconnect(room, seatIdx){
   const seat = room.seats[seatIdx];
   if(!seat) return;
-  seat.ws = null;
-  seat.disconnected = true; // un bot pilote ce siege, mais la place reste reclamable (token ou meme pseudo)
+  const departedName = seat.name;
+  // Le siege redevient une chaise de BOT ordinaire, entierement libre : n'importe qui
+  // (y compris le joueur parti, via son pseudo ou un simple clic) peut la reprendre comme
+  // n'importe quelle chaise vide. Le bot prend le nom "BOT <prenom>" pour qu'on voie qui il
+  // remplace. Plus de statut "deconnecte" a gerer : un seul cas, la chaise libre.
+  room.seats[seatIdx] = null;
   syncHumans(room);
   const E=room.E, S=E.S;
   if(!S) return;
-  // le siege devient piloté par un bot le temps que le joueur revienne : il lui faut
-  // une personnalite pour que la logique des bots (evaluateSuit, botWantsTrump, etc.)
-  // fonctionne, sinon le moteur plante en cherchant des reglages qui n'existent pas
-  ensureBotPersona(E, seatIdx);
-  // si le jeu attendait CE joueur, on repart
+  // installe une vraie personnalite de bot (style + seuil) sur ce siege, puis on remplace
+  // juste son NOM affiche par "BOT <prenom>" pour montrer qui il remplace
+  E.S.bots[seatIdx] = null;         // efface l'ancienne identite humaine
+  ensureBotPersona(E, seatIdx);     // reinstalle une personnalite de bot complete
+  E.S.bots[seatIdx].name = 'BOT ' + departedName;
+  // si le jeu attendait CE joueur, on repart pour que le bot joue a sa place
   if(S.screen==='bidding' && S.biddingTurn===seatIdx) E.FX.later(()=>{ requireFn(E,'advanceBidding')(); }, 400);
   if(S.screen==='play' && E.currentPlayerToPlay()===seatIdx) E.FX.later(()=>{ requireFn(E,'playTurn')(); }, 400);
   if(S.screen==='dealChoice' && S.dealer===seatIdx){ S.dealFirst = Math.random()<0.8?3:2; E.startRound(); }
@@ -208,6 +252,7 @@ setInterval(()=>{
   const now=Date.now();
   for(const [code,room] of rooms){
     if(now-room.lastActivity > 2*3600*1000){
+      if(room.inactivityTimer) clearTimeout(room.inactivityTimer);
       for(const s of room.seats) if(s && s.ws) try{ s.ws.close(); }catch(e){}
       rooms.delete(code);
     }
@@ -242,7 +287,7 @@ wss.on('connection', (ws)=>{
     if(msg.type==='join'){
       const room=rooms.get(String(msg.code||'').toUpperCase());
       if(!room){ send(ws,{type:'error', error:'Partie introuvable'}); return; }
-      // reconnexion par jeton : on retrouve directement son ancien siege
+      // reconnexion par jeton : on retrouve directement son ancien siege s'il existe encore
       if(msg.token){
         const idx=room.seats.findIndex(s=>s && s.token===msg.token);
         if(idx>=0){
@@ -250,17 +295,19 @@ wss.on('connection', (ws)=>{
           return;
         }
       }
-      // reconnexion par PSEUDO : si un siege deconnecte (pilote par un bot) porte exactement
-      // le meme nom, on considere que c'est le meme joueur qui revient et il reprend sa place.
-      // C'est ce qui debloque le cas "la salle parait pleine" apres un bug en cours de partie.
+      // reconnexion par PSEUDO : si un siege est tenu par le bot "BOT <pseudo>" (donc issu de
+      // TON depart), on t'y rassoit automatiquement. Meme pseudo = meme place, y compris
+      // depuis un autre appareil sans le jeton. Le bot cede la place et redevient toi.
       const wantName = String(msg.name||'').slice(0,14);
-      if(wantName){
-        const idx=room.seats.findIndex(s=>s && s.disconnected && s.name===wantName);
+      if(wantName && room.E.S && room.E.S.bots){
+        const idx=[0,1,2,3].findIndex(i=>!room.seats[i] && room.E.S.bots[i] && room.E.S.bots[i].name==='BOT '+wantName);
         if(idx>=0){
-          reclaimSeat(room, ws, idx);
+          reseatReturningPlayer(room, ws, idx, wantName);
           return;
         }
       }
+      // sinon (nouvel arrivant, ou aucune place a ton nom) : on entre en attente et on
+      // choisit une chaise libre — les sieges liberes par un depart en font partie.
       enterAsPending(room, msg.name);
       return;
     }
@@ -327,6 +374,20 @@ wss.on('connection', (ws)=>{
 // quiconque n'aurait pas encore choisi au moment ou la partie demarre.
 // Un joueur reprend un siege existant (le sien, retrouve par token ou par pseudo). Le siege
 // redevient "connecte humain", et le moteur reprend son vrai nom a la place du bot qui le pilotait.
+// Un joueur revient et une place porte "BOT <son pseudo>" : on la lui rend. Le siege
+// redevient humain a son nom (nouveau jeton pour les prochaines reconnexions rapides).
+function reseatReturningPlayer(room, ws, idx, name){
+  const token = crypto.randomBytes(12).toString('hex');
+  room.seats[idx] = { name, token, ws };
+  ws._room = room; ws._seat = idx;
+  if(ws._pending){ room.pending.delete(ws); ws._pending=false; }
+  room.pending.delete(ws);
+  syncHumans(room);
+  if(room.E.S) room.E.S.bots[idx] = { name, style:'Humain', threshold:0 };
+  send(ws,{type:'joined', code:room.code, seat:idx, token, started:room.started});
+  if(room.started) broadcast(room); else broadcastLobby(room);
+}
+
 function reclaimSeat(room, ws, idx){
   const seat = room.seats[idx];
   seat.ws = ws;

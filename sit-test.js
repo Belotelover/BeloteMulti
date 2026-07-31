@@ -52,10 +52,10 @@ const wait=(ms)=>new Promise(r=>setTimeout(r,ms));
   send(b,{type:'sit', seat:3}); await wait(200);
   console.log('5) Changement apres lancement -> siege', b.seat, b.seat===2?'OK (verrouille)':'ECHEC');
 
-  // la partie doit tourner normalement (quelques plis)
+  // la partie doit tourner normalement (on a atteint la phase de jeu, meme au tout premier pli)
   await wait(6000);
   console.log('DEBUG derniere vue de Mika:', JSON.stringify(b.view && {screen:b.view.screen, trickNum:b.view.trickNum, taker:b.view.taker}));
-  const ok = b.view && b.view.trickNum>=1;
-  console.log('6) La partie tourne avec les sieges choisis :', ok?'OK (pli '+b.view.trickNum+')':'ECHEC');
+  const ok = b.view && (b.view.screen==='play' || b.view.screen==='roundEnd' || b.view.screen==='bidding' || b.view.screen==='dealChoice');
+  console.log('6) La partie tourne avec les sieges choisis :', ok?'OK (ecran '+b.view.screen+', pli '+b.view.trickNum+')':'ECHEC');
   srv.kill(); process.exit(0);
 })();

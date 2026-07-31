@@ -116,9 +116,11 @@ function broadcast(room){
 function playersInfo(room){
   return [0,1,2,3].map(i=>{
     const s=room.seats[i];
-    if(s) return { seat:i, name:s.name, human:true, connected: !!s.ws };
+    // un siege humain deconnecte est signale (disconnected:true) : un bot le pilote pour
+    // ne pas bloquer la partie, mais la place reste celle du joueur, qui peut la reprendre
+    if(s) return { seat:i, name:s.name, human:true, connected: !!s.ws, disconnected: !!s.disconnected };
     const bots = room.E.S && room.E.S.bots;
-    return { seat:i, name: bots && bots[i] ? bots[i].name : 'Bot', human:false, connected:true };
+    return { seat:i, name: bots && bots[i] ? bots[i].name : 'Bot', human:false, connected:true, disconnected:false };
   });
 }
 
@@ -176,6 +178,7 @@ function onDisconnect(room, seatIdx){
   const seat = room.seats[seatIdx];
   if(!seat) return;
   seat.ws = null;
+  seat.disconnected = true; // un bot pilote ce siege, mais la place reste reclamable (token ou meme pseudo)
   syncHumans(room);
   const E=room.E, S=E.S;
   if(!S) return;
@@ -243,10 +246,18 @@ wss.on('connection', (ws)=>{
       if(msg.token){
         const idx=room.seats.findIndex(s=>s && s.token===msg.token);
         if(idx>=0){
-          room.seats[idx].ws=ws; ws._room=room; ws._seat=idx;
-          syncHumans(room);
-          send(ws,{type:'joined', code:room.code, seat:idx, token:msg.token, started:room.started});
-          broadcast(room);
+          reclaimSeat(room, ws, idx);
+          return;
+        }
+      }
+      // reconnexion par PSEUDO : si un siege deconnecte (pilote par un bot) porte exactement
+      // le meme nom, on considere que c'est le meme joueur qui revient et il reprend sa place.
+      // C'est ce qui debloque le cas "la salle parait pleine" apres un bug en cours de partie.
+      const wantName = String(msg.name||'').slice(0,14);
+      if(wantName){
+        const idx=room.seats.findIndex(s=>s && s.disconnected && s.name===wantName);
+        if(idx>=0){
+          reclaimSeat(room, ws, idx);
           return;
         }
       }
@@ -314,6 +325,19 @@ wss.on('connection', (ws)=>{
 // Installe une connexion (deja en attente OU deja assise ailleurs) sur la chaise t.
 // Reutilise pour : le clic du joueur sur une chaise libre, ET pour installer d'office
 // quiconque n'aurait pas encore choisi au moment ou la partie demarre.
+// Un joueur reprend un siege existant (le sien, retrouve par token ou par pseudo). Le siege
+// redevient "connecte humain", et le moteur reprend son vrai nom a la place du bot qui le pilotait.
+function reclaimSeat(room, ws, idx){
+  const seat = room.seats[idx];
+  seat.ws = ws;
+  seat.disconnected = false;
+  ws._room = room; ws._seat = idx;
+  syncHumans(room);
+  if(room.E.S) room.E.S.bots[idx] = { name: seat.name, style:'Humain', threshold:0 };
+  send(ws,{type:'joined', code:room.code, seat:idx, token:seat.token, started:room.started});
+  if(room.started) broadcast(room); else broadcastLobby(room);
+}
+
 function seatConnection(room, ws, t){
   if(room.seats[t]!==null) return false;
   if(ws._seat<0){

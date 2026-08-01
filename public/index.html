@@ -279,6 +279,7 @@ let handIds=[];        // ids de ma main au rendu precedent
 let freshIds=[];       // cartes en cours d'affichage sur la rangee du dessus
 let freshTimer=null;
 let flipPending=false; // demande d'animer le rangement au prochain rendu
+let freshEntered=false;// l'animation d'arrivee a deja ete jouee (evite qu'elle rejoue a chaque rendu)
 const FRESH_PAUSE_MS = 2500;
 
 function detectFreshCards(nv){
@@ -288,6 +289,7 @@ function detectFreshCards(nv){
     const added=ids.filter(id=>prev.indexOf(id)<0);
     if(added.length){
       freshIds=added;
+      freshEntered=false;
       if(freshTimer) clearTimeout(freshTimer);
       freshTimer=setTimeout(()=>{
         freshIds=[]; freshTimer=null; flipPending=true; render();
@@ -664,11 +666,14 @@ function render(){
     const nr=document.createElement('div'); nr.className='new-row';
     for(const c of sorted){
       if(!freshSet.has(c.id)) continue;
-      const el=cardEl(c, 'fresh arriving');
+      // 'arriving' UNIQUEMENT au premier affichage : le client redessine l'ecran a chaque
+      // message du serveur, et rejouer l'animation a chaque fois faisait clignoter les cartes
+      const el=cardEl(c, freshEntered ? 'fresh' : 'fresh arriving');
       el.dataset.cid=c.id;
       nr.appendChild(el);
     }
     root.appendChild(nr);
+    freshEntered=true;
   }
 
   // ---------- barres d'action ----------

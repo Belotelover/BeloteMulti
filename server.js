@@ -21,7 +21,11 @@ const PORT = process.env.PORT || 10000; // Render fournit PORT
 
 // ---------- petit serveur statique (la page du jeu) ----------
 const PUBLIC = path.join(__dirname, 'public');
-const MIME = { '.html':'text/html', '.js':'text/javascript', '.css':'text/css', '.png':'image/png', '.svg':'image/svg+xml' };
+const MIME = {
+  '.html':'text/html; charset=utf-8', '.js':'text/javascript; charset=utf-8',
+  '.css':'text/css; charset=utf-8', '.png':'image/png', '.svg':'image/svg+xml',
+  '.ico':'image/x-icon', '.json':'application/json; charset=utf-8'
+};
 const httpServer = http.createServer((req,res)=>{
   let p = req.url.split('?')[0];
   if(p==='/' ) p='/index.html';
@@ -102,6 +106,17 @@ function syncHumans(room){
 
 function send(ws, msg){ try{ ws.send(JSON.stringify(msg)); }catch(e){} }
 
+// Les pseudos sont affiches chez TOUS les joueurs : on retire les caracteres qui
+// permettraient d'injecter du HTML ou du script dans l'ecran des autres, et on limite
+// la longueur. Seul point d'entree des noms -> a utiliser partout.
+function cleanName(raw){
+  return String(raw==null ? '' : raw)
+    .replace(/[<>&"'`\\]/g, '')   // neutralise toute tentative d'injection HTML
+    .replace(/\s+/g, ' ')          // pas de sauts de ligne ni d'espaces multiples
+    .trim()
+    .slice(0, 14) || 'Joueur';
+}
+
 function broadcast(room){
   const E=room.E;
   if(!E.S) return;
@@ -134,9 +149,22 @@ function humanSeatToAct(room){
 const INACTIVITY_MS = parseInt(process.env.INACTIVITY_MS||'40000', 10);
 function armInactivityTimer(room){
   if(room.inactivityTimer){ clearTimeout(room.inactivityTimer); room.inactivityTimer=null; }
+  const E=room.E, S=E.S;
+  if(!S) return;
+
+  // Cas 1 : ecran de recap de fin de manche. N'importe qui peut cliquer "suivant" pour
+  // toute la table ; si PERSONNE ne clique, on avance tout seul (sinon la table gele).
+  // On n'exclut personne ici : ce n'est le tour de personne en particulier.
+  if(S.screen==='roundEnd'){
+    room.inactivityTimer = setTimeout(()=>{
+      if(room.E.S && room.E.S.screen==='roundEnd') room.E.nextRoundOrEnd();
+    }, INACTIVITY_MS);
+    return;
+  }
+
+  // Cas 2 : c'est le tour d'un humain precis. S'il ne joue pas, un bot prend sa place.
   const seat = humanSeatToAct(room);
   if(seat<0) return;
-  room.inactivitySeat = seat;
   room.inactivityTimer = setTimeout(()=>{
     // on revalide que c'est toujours le meme humain qui bloque (rien n'a bouge entre-temps)
     if(humanSeatToAct(room)!==seat) return;
@@ -180,6 +208,9 @@ function startGame(room){
   E.S.screen='play-init';
   E.beginRound();
   broadcast(room);
+  // les joueurs encore sur l'ecran de choix (pas assis) doivent voir l'etat a jour,
+  // sinon ils cliquent une chaise d'apres une photo perimee du lobby
+  broadcastLobby(room);
 }
 
 // deconnexion : le bot reprend le siege ; si l'action attendue etait a ce
@@ -224,27 +255,24 @@ function onDisconnect(room, seatIdx){
   room.seats[seatIdx] = null;
   syncHumans(room);
   const E=room.E, S=E.S;
-  if(!S) return;
+
+  // Depart AVANT le lancement (lobby) : il n'y a pas encore d'etat de jeu, mais il faut
+  // quand meme prevenir les autres, sinon ils continuent de voir la personne assise et
+  // ne peuvent pas prendre sa place (ni savoir que la table n'est plus complete).
+  if(!S || !room.started){ broadcastLobby(room); return; }
+
   // installe une vraie personnalite de bot (style + seuil) sur ce siege, puis on remplace
   // juste son NOM affiche par "BOT <prenom>" pour montrer qui il remplace
   E.S.bots[seatIdx] = null;         // efface l'ancienne identite humaine
   ensureBotPersona(E, seatIdx);     // reinstalle une personnalite de bot complete
   E.S.bots[seatIdx].name = 'BOT ' + departedName;
-  // si le jeu attendait CE joueur, on repart pour que le bot joue a sa place
-  if(S.screen==='bidding' && S.biddingTurn===seatIdx) E.FX.later(()=>{ requireFn(E,'advanceBidding')(); }, 400);
-  if(S.screen==='play' && E.currentPlayerToPlay()===seatIdx) E.FX.later(()=>{ requireFn(E,'playTurn')(); }, 400);
+  // si le jeu attendait CE joueur, on relance la boucle pour que le bot joue a sa place.
+  // (Sans cela la table gele : le moteur s'etait arrete en attendant un clic humain.)
+  if(S.screen==='bidding' && S.biddingTurn===seatIdx) E.FX.later(()=>E.advanceBidding(), 400);
+  if(S.screen==='play' && E.currentPlayerToPlay()===seatIdx) E.FX.later(()=>E.playTurn(), 400);
   if(S.screen==='dealChoice' && S.dealer===seatIdx){ S.dealFirst = Math.random()<0.8?3:2; E.startRound(); }
   autoAdvanceIfEmpty(room);
   broadcast(room);
-}
-
-// certaines fonctions internes ne sont pas exportees : on les atteint via un
-// petit detour controle (elles existent dans la portee du module)
-function requireFn(E, name){
-  // advanceBidding / playTurn sont pilotes par les timers du moteur ; le plus
-  // simple et robuste est de re-declencher via l'API publique quand possible.
-  if(name==='advanceBidding') return ()=>{ const S=E.S; if(S.screen==='bidding' && !E.isHumanSeat(S.biddingTurn)) { /* le prochain FX.later du moteur suivra */ E.humanPass; } };
-  return ()=>{};
 }
 
 // menage : rooms inactives > 2h
@@ -298,7 +326,7 @@ wss.on('connection', (ws)=>{
       // reconnexion par PSEUDO : si un siege est tenu par le bot "BOT <pseudo>" (donc issu de
       // TON depart), on t'y rassoit automatiquement. Meme pseudo = meme place, y compris
       // depuis un autre appareil sans le jeton. Le bot cede la place et redevient toi.
-      const wantName = String(msg.name||'').slice(0,14);
+      const wantName = cleanName(msg.name);
       if(wantName && room.E.S && room.E.S.bots){
         const idx=[0,1,2,3].findIndex(i=>!room.seats[i] && room.E.S.bots[i] && room.E.S.bots[i].name==='BOT '+wantName);
         if(idx>=0){
@@ -358,7 +386,7 @@ wss.on('connection', (ws)=>{
 
   // le joueur est associe a la room mais PAS ENCORE a un siege : il doit choisir sa place
   function enterAsPending(room, name){
-    ws._room=room; ws._seat=-1; ws._name=String(name||'Joueur').slice(0,14);
+    ws._room=room; ws._seat=-1; ws._name=cleanName(name);
     room.pending.add(ws);
     send(ws,{type:'choose-seat', code:room.code, players:playersInfo(room)});
   }
@@ -369,18 +397,12 @@ wss.on('connection', (ws)=>{
   });
 });
 
-// Installe une connexion (deja en attente OU deja assise ailleurs) sur la chaise t.
-// Reutilise pour : le clic du joueur sur une chaise libre, ET pour installer d'office
-// quiconque n'aurait pas encore choisi au moment ou la partie demarre.
-// Un joueur reprend un siege existant (le sien, retrouve par token ou par pseudo). Le siege
-// redevient "connecte humain", et le moteur reprend son vrai nom a la place du bot qui le pilotait.
 // Un joueur revient et une place porte "BOT <son pseudo>" : on la lui rend. Le siege
 // redevient humain a son nom (nouveau jeton pour les prochaines reconnexions rapides).
 function reseatReturningPlayer(room, ws, idx, name){
   const token = crypto.randomBytes(12).toString('hex');
   room.seats[idx] = { name, token, ws };
   ws._room = room; ws._seat = idx;
-  if(ws._pending){ room.pending.delete(ws); ws._pending=false; }
   room.pending.delete(ws);
   syncHumans(room);
   if(room.E.S) room.E.S.bots[idx] = { name, style:'Humain', threshold:0 };
@@ -391,7 +413,6 @@ function reseatReturningPlayer(room, ws, idx, name){
 function reclaimSeat(room, ws, idx){
   const seat = room.seats[idx];
   seat.ws = ws;
-  seat.disconnected = false;
   ws._room = room; ws._seat = idx;
   syncHumans(room);
   if(room.E.S) room.E.S.bots[idx] = { name: seat.name, style:'Humain', threshold:0 };
@@ -404,7 +425,7 @@ function seatConnection(room, ws, t){
   if(ws._seat<0){
     room.pending.delete(ws);
     const token=crypto.randomBytes(12).toString('hex');
-    room.seats[t] = { name: ws._name || 'Joueur', token, ws };
+    room.seats[t] = { name: cleanName(ws._name), token, ws };
   }else{
     room.seats[t]=room.seats[ws._seat];
     room.seats[ws._seat]=null;

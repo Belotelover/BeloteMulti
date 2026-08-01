@@ -1035,6 +1035,10 @@ if (typeof module !== 'undefined' && module.exports) {
     FX, newGame, beginRound, startRound, nextRoundOrEnd,
     humanChooseDeal, humanPass, humanTakeRound1, humanPickSuit, humanPlay,
     viewFor, legalMoves, currentPlayerToPlay, isHumanSeat,
+    // relance de la boucle de jeu : indispensable au serveur quand un humain quitte
+    // pendant son tour (le bot doit prendre le relais). Ces deux fonctions s'auto-protegent
+    // (elles ne font rien si ce n'est pas le bon ecran ou si le siege est humain).
+    playTurn, advanceBidding,
     evaluateSuit, botBestSuit, say, myPhraseChoices, PHRASES, pick,
     SUITS, TEAM_OF
   };

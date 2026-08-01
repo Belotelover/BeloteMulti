@@ -74,6 +74,17 @@
   .suit-s{color:#111;}
 
   .bottom-hand .card{width:66px;height:96px;margin:0 -9px;transition:transform .15s;cursor:pointer;}
+  /* Rangee d'accueil des cartes recues apres la prise : elles restent en evidence le temps
+     de les voir, puis viennent se ranger dans la main (animation FLIP dans render). */
+  .new-row{position:absolute;bottom:118px;left:0;right:0;display:flex;justify-content:center;
+    gap:0;z-index:5;pointer-events:none;}
+  .new-row .card{width:66px;height:96px;margin:0 -9px;}
+  .card.fresh{box-shadow:0 0 0 2px #f4d99a, 0 4px 14px rgba(0,0,0,.55);}
+  .card.arriving{animation:cardArrive .28s cubic-bezier(.2,.8,.3,1) backwards;}
+  @keyframes cardArrive{ from{ transform:translateY(-40px) scale(.9); opacity:0; } }
+  @media (prefers-reduced-motion: reduce){
+    .card.arriving{animation:none;}
+  }
   .bottom-hand .card .r1, .bottom-hand .card .r2{font-size:16px;}
   .bottom-hand .card .suit-big{font-size:27px;}
   .bottom-hand .card:hover{transform:translateY(-10px);}
@@ -254,14 +265,41 @@ let showLast=false, showChat=false;
 const SUITS=['\u2665','\u2666','\u2663','\u2660'];
 const PHRASES_FLAT=['Bien joué !','Joli coup','Chapeau','Bien vu','Regarde la route 😄','Allez là !','Tu dors ?','Ça fait mal','Dommage','Presque !','Aïe','Pas de chance','On y va','Courage','Salut !','Bonne partie','Merci'];
 
-function relPos(seat){ // position ECRAN vue de MON siege : moi en bas
-  return (seat - ME + 4) % 4; // 0=bas(moi) ; l'ordre horaire du moteur est 0,3,2,1
-}
-// mapping ecran : rel 0=bas, et pour respecter le sens horaire visuel : 1->droite? Le moteur tourne 0,3,2,1.
-// vu de n'importe quel siege, le joueur suivant (sens horaire) doit apparaitre a GAUCHE quand on tourne horaire sur table vue de dessus... on garde la convention solo : bas, droite, haut, gauche pour rel 0..3 calcule en sens inverse
 function screenSlot(seat){
   const d=(seat-ME+4)%4;      // 0 moi
   return ['bottom','right','top','left'][d===0?0: d===1?1: d===2?2:3];
+}
+
+// ---------- arrivee des cartes apres la prise ----------
+// Quand la main GRANDIT (5 -> 8 cartes apres la prise), les nouvelles cartes s'affichent
+// d'abord sur une rangee au-dessus, le temps de les voir, puis se rangent dans la main.
+// On identifie les cartes par leur id (pas par leur element) car le client redessine tout
+// l'ecran a chaque message du serveur : les elements sont recrees, les ids non.
+let handIds=[];        // ids de ma main au rendu precedent
+let freshIds=[];       // cartes en cours d'affichage sur la rangee du dessus
+let freshTimer=null;
+let flipPending=false; // demande d'animer le rangement au prochain rendu
+const FRESH_PAUSE_MS = 2500;
+
+function detectFreshCards(nv){
+  const ids=(nv.hand||[]).map(c=>c.id);
+  const prev=handIds;
+  if(prev.length && ids.length>prev.length){
+    const added=ids.filter(id=>prev.indexOf(id)<0);
+    if(added.length){
+      freshIds=added;
+      if(freshTimer) clearTimeout(freshTimer);
+      freshTimer=setTimeout(()=>{
+        freshIds=[]; freshTimer=null; flipPending=true; render();
+      }, FRESH_PAUSE_MS);
+    }
+  }
+  // main qui retrecit (carte jouee) ou nouvelle donne : on annule tout affichage en cours
+  if(ids.length<prev.length && freshIds.length){
+    freshIds=[]; flipPending=false;
+    if(freshTimer){ clearTimeout(freshTimer); freshTimer=null; }
+  }
+  handIds=ids;
 }
 
 let myName=''; // conserve meme AVANT d'avoir un siege/jeton, pour pouvoir se reconnecter en attente
@@ -269,6 +307,7 @@ let disconnected=false;
 let intentionalClose=false;
 
 let lastPong=0, heartbeatTimer=null, watchdogTimer=null;
+let connecting=false, onOpenQueue=[];
 function startHeartbeat(){
   stopHeartbeat();
   lastPong = Date.now();
@@ -281,16 +320,37 @@ function startHeartbeat(){
     if(Date.now()-lastPong > 16000){ try{ ws && ws.close(); }catch(e){} }
   }, 4000);
 }
-function stopHeartbeat(){ if(heartbeatTimer) clearInterval(heartbeatTimer); if(watchdogTimer) clearInterval(watchdogTimer); }
+function stopHeartbeat(){
+  if(heartbeatTimer){ clearInterval(heartbeatTimer); heartbeatTimer=null; }
+  if(watchdogTimer){ clearInterval(watchdogTimer); watchdogTimer=null; }
+}
 
 function connect(then){
+  // Une seule tentative de connexion a la fois. Sans ce garde-fou, plusieurs appels
+  // simultanes (clic + reconnexion automatique + rejeu d'action) creaient chacun leur
+  // WebSocket : les anciennes restaient orphelines et declenchaient a leur tour des
+  // reconnexions, en cascade. Les actions en attente sont rejouees a l'ouverture.
+  if(then) onOpenQueue.push(then);
+  if(connecting) return;
+  connecting=true;
+  if(ws){ try{ ws.onclose=null; ws.onmessage=null; ws.onopen=null; ws.close(); }catch(e){} }
   const proto = location.protocol==='https:'?'wss:':'ws:';
   ws = new WebSocket(proto+'//'+location.host);
-  ws.onopen=()=>{ disconnected=false; startHeartbeat(); render(); if(then) then(); };
+  ws.onopen=()=>{
+    connecting=false; disconnected=false; startHeartbeat(); render();
+    const q=onOpenQueue.slice(); onOpenQueue.length=0;
+    for(const f of q){ try{ f(); }catch(e){} }
+  };
   ws.onmessage=(ev)=>{
     const m=JSON.parse(ev.data);
     if(m.type==='pong'){ lastPong=Date.now(); return; }
-    if(m.type==='error'){ alert(m.error); return; }
+    if(m.type==='error'){
+      // la partie n'existe plus (ex: fermee apres 2h) : on oublie la session pour ne pas
+      // boucler indefiniment sur une reconnexion vouee a echouer
+      sessionStorage.removeItem('belote');
+      CODE=null; ME=-1; TOKEN=null; STARTED=false; V=null; PLAYERS=null;
+      alert(m.error); render(); return;
+    }
     if(m.type==='choose-seat'){ CODE=m.code; PLAYERS=m.players; ME=-1; STARTED=false;
       sessionStorage.setItem('belote', JSON.stringify({code:CODE, name:myName}));
       render(); return; }
@@ -298,16 +358,14 @@ function connect(then){
       sessionStorage.setItem('belote', JSON.stringify({code:CODE, token:TOKEN, name:myName}));
       render(); return; }
     if(m.type==='lobby'){ PLAYERS=m.players; STARTED=m.started; render(); return; }
-    if(m.type==='view'){ V=m.view; PLAYERS=m.players; STARTED=true; render(); return; }
+    if(m.type==='view'){ detectFreshCards(m.view); V=m.view; PLAYERS=m.players; STARTED=true; render(); return; }
   };
   ws.onclose=()=>{
+    connecting=false;
     stopHeartbeat();
-    if(intentionalClose){ intentionalClose=false; return; } // depart volontaire (nouvelle partie) : pas d'alerte
+    if(intentionalClose){ intentionalClose=false; onOpenQueue.length=0; return; } // depart volontaire
     disconnected=true; render();
     setTimeout(()=>{
-      // reconnexion automatique : avec le jeton si on avait deja un siege, sinon en tant
-      // qu'"en attente" (choose-seat) — c'est ce second cas qui manquait, laissant un
-      // joueur qui n'avait pas encore choisi sa chaise bloque sans aucun moyen de revenir
       const saved=sessionStorage.getItem('belote');
       if(!saved) return;
       const {code,token,name}=JSON.parse(saved);
@@ -332,6 +390,9 @@ function send(o){
   });
 }
 
+// double securite : meme si un pseudo arrivait non filtre, il ne peut pas injecter de HTML
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
 const SUIT_COLORS = {'\u2665':'#c1272d', '\u2666':'#e07b1f', '\u2663':'#1a1a1a', '\u2660':'#1c3f66'};
 function cardEl(c, cls, onClick){
   const d=document.createElement('div');
@@ -344,6 +405,13 @@ function cardEl(c, cls, onClick){
 
 function render(){
   const root=document.getElementById('root');
+  // FLIP (1/2) : on releve la position de chaque carte AVANT de tout redessiner, indexee
+  // par id. Apres reconstruction on animera l'ecart, ce qui donne l'impression que les
+  // memes cartes glissent a leur nouvelle place.
+  const prevRects=new Map();
+  if(flipPending){
+    root.querySelectorAll('.card[data-cid]').forEach(el=>prevRects.set(el.dataset.cid, el.getBoundingClientRect()));
+  }
   root.innerHTML='';
 
   // boutons ronds ambiance + plein ecran : disponibles partout SAUF sur l'ecran de choix
@@ -376,11 +444,17 @@ function render(){
     const name=document.createElement('input'); name.placeholder='Ton prénom'; name.maxLength=14;
     name.style.cssText='padding:10px;border-radius:10px;border:2px solid #5b3a1a;font-size:15px;text-align:center;';
     const bC=document.createElement('button'); bC.className='gold-btn'; bC.textContent='CRÉER UNE PARTIE';
-    bC.onclick=()=>{ myName=name.value; connect(()=>send({type:'create', name:myName})); };
+    // garde anti double-clic : sans cela, deux clics rapides creaient DEUX parties
+    bC.onclick=()=>{ if(bC.disabled) return; bC.disabled=true; bJ.disabled=true;
+      myName=name.value; connect(()=>send({type:'create', name:myName})); };
     const code=document.createElement('input'); code.placeholder='CODE'; code.maxLength=4;
     code.style.cssText='padding:10px;border-radius:10px;border:2px solid #5b3a1a;font-size:15px;text-align:center;text-transform:uppercase;width:90px;';
     const bJ=document.createElement('button'); bJ.className='gold-btn'; bJ.textContent='REJOINDRE';
-    bJ.onclick=()=>{ myName=name.value; connect(()=>send({type:'join', code:code.value.toUpperCase(), name:myName})); };
+    bJ.onclick=()=>{ if(bJ.disabled) return;
+      const wanted=code.value.trim().toUpperCase();
+      if(wanted.length!==4){ alert('Le code de la partie fait 4 lettres.'); return; }
+      bJ.disabled=true; bC.disabled=true;
+      myName=name.value; connect(()=>send({type:'join', code:wanted, name:myName})); };
     home.appendChild(name); home.appendChild(bC);
     const row=document.createElement('div'); row.style.cssText='display:flex;gap:10px;align-items:center;';
     row.appendChild(code); row.appendChild(bJ); home.appendChild(row);
@@ -421,8 +495,8 @@ function render(){
       chip.style.gridArea=cellOf[i];
 
       let label, sub;
-      if(isHuman){ label='👤 '+p.name; sub = i===ME ? '(toi)' : 'prêt'; }
-      else if(isReplacementBot){ label='🤖 '+p.name; sub='clique pour prendre la place'; }
+      if(isHuman){ label='👤 '+esc(p.name); sub = i===ME ? '(toi)' : 'prêt'; }
+      else if(isReplacementBot){ label='🤖 '+esc(p.name); sub='clique pour prendre la place'; }
       else { label='🤖 chaise libre'; sub='clique pour t\'asseoir'; }
       const teamName = (i%2)===0 ? 'verte' : 'rouge';
       chip.innerHTML='<div>'+label+'</div><small style="opacity:.8;font-weight:400">'+sub+'</small>'
@@ -471,7 +545,7 @@ function render(){
   if(CODE){
     const cw=document.createElement('div'); cw.className='hud-round';
     cw.style.color='#f4d99a';
-    const who = myName ? ' · toi : <b>'+myName+'</b>' : '';
+    const who = myName ? ' · toi : <b>'+esc(myName)+'</b>' : '';
     cw.innerHTML='Code : <b style="letter-spacing:2px;font-size:13px">'+CODE+'</b>'+who;
     hud.appendChild(cw);
   }
@@ -575,12 +649,27 @@ function render(){
   const PLAIN_RANKS=['7','8','9','V','D','R','10','A'], TRUMP_RANKS=['7','8','D','R','10','A','9','V'];
   const rankIdx = c => (c.suit===V.trumpSuit ? TRUMP_RANKS : PLAIN_RANKS).indexOf(c.rank);
   const sorted=V.hand.slice().sort((a,b)=>SUITS.indexOf(a.suit)-SUITS.indexOf(b.suit) || rankIdx(a)-rankIdx(b));
+  const freshSet = new Set(freshIds);
   for(const c of sorted){
+    if(freshSet.has(c.id)) continue; // encore sur la rangee du dessus
     const legal=!V.yourTurnToPlay || (V.legal && V.legal.includes(c.id));
     const el=cardEl(c, legal?'':'disabled', ()=>{ if(V.yourTurnToPlay) send({type:'play', id:c.id}); });
+    el.dataset.cid=c.id;
     hand.appendChild(el);
   }
   root.appendChild(hand);
+
+  // cartes qui viennent d'arriver : elles patientent au-dessus de la main, en evidence
+  if(freshIds.length){
+    const nr=document.createElement('div'); nr.className='new-row';
+    for(const c of sorted){
+      if(!freshSet.has(c.id)) continue;
+      const el=cardEl(c, 'fresh arriving');
+      el.dataset.cid=c.id;
+      nr.appendChild(el);
+    }
+    root.appendChild(nr);
+  }
 
   // ---------- barres d'action ----------
   if(V.yourTurnToDeal){
@@ -681,6 +770,32 @@ function render(){
     const c=document.createElement('button'); c.className='gold-btn small'; c.textContent='FERMER';
     c.onclick=()=>{ showLast=false; render(); };
     o.panel.appendChild(c);
+  }
+
+  // FLIP (2/2) : les cartes sont a leur place finale. On les replace visuellement la ou
+  // elles etaient, puis on relache : elles glissent toutes seules vers leur nouvelle
+  // position. Les cartes qui descendent de la rangee du dessus se rangent, les anciennes
+  // s'ecartent pour leur faire de la place.
+  if(flipPending){
+    flipPending=false;
+    const moved=[];
+    root.querySelectorAll('.card[data-cid]').forEach(el=>{
+      const a=prevRects.get(el.dataset.cid); if(!a) return;
+      const b=el.getBoundingClientRect();
+      const dx=a.left-b.left, dy=a.top-b.top;
+      if(Math.abs(dx)<1 && Math.abs(dy)<1) return;
+      el.style.transition='none';
+      el.style.transform='translate('+dx+'px,'+dy+'px)';
+      moved.push(el);
+    });
+    if(moved.length){
+      requestAnimationFrame(()=>{
+        moved.forEach((el,i)=>{
+          el.style.transition='transform 560ms cubic-bezier(.2,.85,.25,1) '+(i*22)+'ms';
+          el.style.transform='translate(0,0)';
+        });
+      });
+    }
   }
 }
 

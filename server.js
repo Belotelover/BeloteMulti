@@ -28,6 +28,15 @@ const MIME = {
 };
 const httpServer = http.createServer((req,res)=>{
   let p = req.url.split('?')[0];
+
+  // liste des parties en cours, pour l'ecran d'accueil. Une simple adresse web plutot
+  // qu'une connexion permanente : personne n'ouvre de socket juste pour regarder la liste.
+  if(p==='/api/rooms'){
+    res.writeHead(200, {'Content-Type':'application/json; charset=utf-8', 'Cache-Control':'no-store'});
+    res.end(JSON.stringify(roomsSummary()));
+    return;
+  }
+
   if(p==='/' ) p='/index.html';
   const file = path.join(PUBLIC, path.normalize(p).replace(/^([.][.][\/\\])+/,''));
   if(!file.startsWith(PUBLIC)) { res.writeHead(403); res.end(); return; }
@@ -66,6 +75,7 @@ function createRoom(){
     // par siege : { name, token, ws|null }  — null = siege bot
     seats: [null, null, null, null],
     pending: new Set(), // connexions ayant rejoint mais n'ayant pas encore choisi de siege
+    watchers: new Set(), // connexions qui REGARDENT la partie sans y jouer
     lastActivity: Date.now()
   };
   // cablage FX -> reseau
@@ -126,6 +136,12 @@ function broadcast(room){
       send(seat.ws, { type:'view', view: E.viewFor(i), players: playersInfo(room) });
     }
   }
+  if(room.watchers.size){
+    // viewFor(-1) ne correspond a aucun siege : main vide, aucun tour, aucun coup legal.
+    // Le spectateur voit donc exactement ce qui est public, jamais une carte cachee.
+    const vue = E.viewFor(-1);
+    for(const w of room.watchers) send(w, { type:'view', view: vue, players: playersInfo(room), watching:true });
+  }
   armInactivityTimer(room);
 }
 
@@ -179,6 +195,21 @@ function onInactivityTimeout(room, seat){
   const ws=s.ws;
   if(ws){ try{ ws._inactivityKicked=true; ws.close(); }catch(e){} }
   onDisconnect(room, seat); // libere le siege, installe "BOT <prenom>", relance le jeu
+}
+
+// Resume public des parties : ce qu'il faut pour choisir laquelle rejoindre, rien de plus
+// (aucune carte, aucun etat de jeu ne transite ici).
+function roomsSummary(){
+  const out=[];
+  for(const [code,room] of rooms){
+    const joueurs=[0,1,2,3].filter(i=>room.seats[i] && room.seats[i].ws).map(i=>room.seats[i].name);
+    const libres=[0,1,2,3].filter(i=>!room.seats[i]).length;
+    if(!joueurs.length && !room.pending.size) continue; // partie vide : inutile de l'afficher
+    out.push({ code, joueurs, libres, started: room.started, enAttente: room.pending.size });
+  }
+  // les tables les plus animees d'abord, puis celles qui attendent encore du monde
+  out.sort((a,b)=> b.joueurs.length-a.joueurs.length || a.started-b.started);
+  return out;
 }
 
 function playersInfo(room){
@@ -334,6 +365,10 @@ wss.on('connection', (ws)=>{
           return;
         }
       }
+      // mode spectateur : on regarde sans prendre de place. Si la partie n'a pas encore
+      // commence, il n'y a rien a regarder : on bascule sur le choix de siege.
+      if(msg.mode==='watch' && room.started){ enterAsWatcher(room, msg.name); return; }
+
       // sinon (nouvel arrivant, ou aucune place a ton nom) : on entre en attente et on
       // choisit une chaise libre — les sieges liberes par un depart en font partie.
       enterAsPending(room, msg.name);
@@ -342,6 +377,13 @@ wss.on('connection', (ws)=>{
 
     if(!ws._room) return;
     const myRoom=ws._room;
+
+    // un spectateur veut finalement prendre une chaise : il rejoint l'ecran de choix
+    if(msg.type==='want-seat'){
+      myRoom.watchers.delete(ws);
+      enterAsPending(myRoom, ws._name);
+      return;
+    }
 
     // --- choisir sa place : fonctionne aussi bien pour le tout premier choix (pas encore
     // assis, on vient de rejoindre) que pour changer de siege plus tard dans le lobby ---
@@ -385,6 +427,14 @@ wss.on('connection', (ws)=>{
   });
 
   // le joueur est associe a la room mais PAS ENCORE a un siege : il doit choisir sa place
+  function enterAsWatcher(room, name){
+    ws._room=room; ws._seat=-1; ws._name=cleanName(name);
+    room.pending.delete(ws);
+    room.watchers.add(ws);
+    send(ws,{type:'watch', code:room.code, players:playersInfo(room),
+             view: room.E.S ? room.E.viewFor(-1) : null});
+  }
+
   function enterAsPending(room, name){
     ws._room=room; ws._seat=-1; ws._name=cleanName(name);
     room.pending.add(ws);
@@ -392,6 +442,7 @@ wss.on('connection', (ws)=>{
   }
 
   ws.on('close', ()=>{
+    if(ws._room) ws._room.watchers.delete(ws);
     if(ws._room && ws._seat>=0) onDisconnect(ws._room, ws._seat);
     else if(ws._room) ws._room.pending.delete(ws); // depart avant meme d'avoir choisi une place
   });
@@ -422,6 +473,7 @@ function reclaimSeat(room, ws, idx){
 
 function seatConnection(room, ws, t){
   if(room.seats[t]!==null) return false;
+  room.watchers.delete(ws); // il prend une chaise : ce n'est plus un spectateur
   if(ws._seat<0){
     room.pending.delete(ws);
     const token=crypto.randomBytes(12).toString('hex');

@@ -76,6 +76,22 @@
   .bottom-hand .card{width:66px;height:96px;margin:0 -9px;transition:transform .15s;cursor:pointer;}
   /* Rangee d'accueil des cartes recues apres la prise : elles restent en evidence le temps
      de les voir, puis viennent se ranger dans la main (animation FLIP dans render). */
+  /* liste des parties en cours sur l'ecran d'accueil */
+  .rooms{width:100%;max-width:320px;margin:14px auto 0;text-align:left;}
+  .rooms h3{margin:0 0 8px;font-size:13px;color:#f4d99a;text-align:center;font-weight:700;}
+  .room-row{display:flex;align-items:center;justify-content:space-between;gap:8px;
+    background:rgba(0,0,0,.42);border:2px solid rgba(255,255,255,.28);border-radius:12px;
+    padding:9px 12px;margin-bottom:8px;cursor:pointer;color:#eaf3ec;}
+  .room-row:hover{border-color:#f4d99a;}
+  .room-row .who{font-size:12.5px;font-weight:700;line-height:1.3;}
+  .room-row .who small{display:block;font-weight:400;opacity:.75;font-size:11px;}
+  .room-row .tag{font-size:10.5px;font-weight:800;padding:4px 8px;border-radius:10px;white-space:nowrap;}
+  .tag-live{background:#8d2230;color:#fff;}
+  .tag-wait{background:#1f7a45;color:#dff3e6;}
+  .rooms .empty{font-size:12px;color:#a9c7b4;text-align:center;padding:6px 0;}
+  .watch-badge{position:absolute;top:112px;left:50%;transform:translateX(-50%);z-index:9;
+    background:rgba(0,0,0,.55);border:1px solid rgba(244,217,154,.45);color:#f4d99a;
+    padding:5px 12px;border-radius:14px;font-size:11.5px;font-weight:700;white-space:nowrap;}
   .new-row{position:absolute;bottom:118px;left:0;right:0;display:flex;justify-content:center;
     gap:0;z-index:5;pointer-events:none;}
   .new-row .card{width:66px;height:96px;margin:0 -9px;}
@@ -139,6 +155,7 @@
   .ib-l1{top:112px;left:8px;}
   .ib-l2{top:156px;left:8px;}
   .ib-r1{top:112px;right:8px;}
+  .ib-l3{top:200px;left:8px;}  /* 3e bouton a gauche : prendre une chaise (mode spectateur) */
   .ib-r2{top:156px;right:8px;}
   .cross-wrap{position:relative;width:200px;height:210px;margin:10px auto;}
   .cross-slot{position:absolute;width:56px;text-align:center;}
@@ -266,7 +283,8 @@ const SUITS=['\u2665','\u2666','\u2663','\u2660'];
 const PHRASES_FLAT=['Bien joué !','Joli coup','Chapeau','Bien vu','Regarde la route 😄','Allez là !','Tu dors ?','Ça fait mal','Dommage','Presque !','Aïe','Pas de chance','On y va','Courage','Salut !','Bonne partie','Merci'];
 
 function screenSlot(seat){
-  const d=(seat-ME+4)%4;      // 0 moi
+  const base = ME<0 ? 0 : ME;   // spectateur : on regarde la table depuis le siege 0
+  const d=(seat-base+4)%4;      // 0 moi
   return ['bottom','right','top','left'][d===0?0: d===1?1: d===2?2:3];
 }
 
@@ -278,6 +296,7 @@ function screenSlot(seat){
 let handIds=[];        // ids de ma main au rendu precedent
 let freshIds=[];       // cartes en cours d'affichage sur la rangee du dessus
 let freshTimer=null;
+let WATCHING=false;    // je regarde la partie sans y jouer (aucun siege)
 let flipPending=false; // demande d'animer le rangement au prochain rendu
 let freshEntered=false;// l'animation d'arrivee a deja ete jouee (evite qu'elle rejoue a chaque rendu)
 const FRESH_PAUSE_MS = 2500;
@@ -353,14 +372,16 @@ function connect(then){
       CODE=null; ME=-1; TOKEN=null; STARTED=false; V=null; PLAYERS=null;
       alert(m.error); render(); return;
     }
-    if(m.type==='choose-seat'){ CODE=m.code; PLAYERS=m.players; ME=-1; STARTED=false;
+    if(m.type==='watch'){ WATCHING=true; CODE=m.code; PLAYERS=m.players; ME=-1;
+      V=m.view; STARTED=!!m.view; render(); return; }
+    if(m.type==='choose-seat'){ WATCHING=false; CODE=m.code; PLAYERS=m.players; ME=-1; STARTED=false;
       sessionStorage.setItem('belote', JSON.stringify({code:CODE, name:myName}));
       render(); return; }
-    if(m.type==='joined'){ CODE=m.code; ME=m.seat; TOKEN=m.token; STARTED=m.started;
+    if(m.type==='joined'){ WATCHING=false; CODE=m.code; ME=m.seat; TOKEN=m.token; STARTED=m.started;
       sessionStorage.setItem('belote', JSON.stringify({code:CODE, token:TOKEN, name:myName}));
       render(); return; }
     if(m.type==='lobby'){ PLAYERS=m.players; STARTED=m.started; render(); return; }
-    if(m.type==='view'){ detectFreshCards(m.view); V=m.view; PLAYERS=m.players; STARTED=true; render(); return; }
+    if(m.type==='view'){ if(m.watching) WATCHING=true; detectFreshCards(m.view); V=m.view; PLAYERS=m.players; STARTED=true; render(); return; }
   };
   ws.onclose=()=>{
     connecting=false;
@@ -403,6 +424,75 @@ function cardEl(c, cls, onClick){
   d.innerHTML='<div class="r1">'+c.rank+c.suit+'</div><div class="suit-big">'+c.suit+'</div><div class="r2">'+c.rank+c.suit+'</div>';
   if(onClick) d.onclick=onClick;
   return d;
+}
+
+// ---------- parties en cours (ecran d'accueil) ----------
+// On interroge une simple adresse web toutes les 5 s et on ne remplace QUE la liste :
+// un redessin complet effacerait le prenom en cours de frappe.
+let roomsTimer=null;
+async function refreshRooms(){
+  const box=document.getElementById('rooms-list');
+  if(!box) return;
+  try{
+    const r=await fetch('/api/rooms', {cache:'no-store'});
+    const list=await r.json();
+    fillRooms(box, list);
+  }catch(e){
+    box.innerHTML='<h3>Parties en cours</h3><div class="empty">Liste indisponible</div>';
+  }
+  if(roomsTimer) clearTimeout(roomsTimer);
+  roomsTimer=setTimeout(()=>{ if(document.getElementById('rooms-list')) refreshRooms(); }, 5000);
+}
+
+function fillRooms(box, list){
+  box.innerHTML='<h3>Parties en cours</h3>';
+  if(!list.length){
+    const e=document.createElement('div'); e.className='empty';
+    e.textContent='Aucune partie pour le moment — crée la première !';
+    box.appendChild(e); return;
+  }
+  for(const p of list){
+    const row=document.createElement('div'); row.className='room-row';
+    const who=document.createElement('div'); who.className='who';
+    const noms = p.joueurs.length ? p.joueurs.map(esc).join(', ') : 'personne encore';
+    who.innerHTML='<span>'+esc(p.code)+'</span><small>'+noms
+      + (p.libres ? ' · '+p.libres+' place'+(p.libres>1?'s':'')+' libre'+(p.libres>1?'s':'') : ' · table complète')
+      + '</small>';
+    const tag=document.createElement('span');
+    tag.className='tag '+(p.started?'tag-live':'tag-wait');
+    tag.textContent = p.started ? 'en cours' : 'en attente';
+    row.appendChild(who); row.appendChild(tag);
+    row.onclick=()=>openRoomChoice(p);
+    box.appendChild(row);
+  }
+}
+
+// Dialogue : rejoindre pour jouer, ou simplement regarder.
+function openRoomChoice(p){
+  if(!myName || !myName.trim()){ alert('Entre ton prénom avant de rejoindre une partie.'); return; }
+  const root=document.getElementById('root');
+  const o=overlay(root, ()=>render());
+  const libre = p.libres>0;
+  o.panel.innerHTML='<h2>Partie '+esc(p.code)+'</h2>'
+    +'<p>'+(p.started ? 'La partie a déjà commencé.' : 'La partie n\'a pas encore commencé.')
+    +'<br>'+(libre ? p.libres+' place'+(p.libres>1?'s':'')+' libre'+(p.libres>1?'s':'')+' à table.'
+                   : 'Toutes les places sont prises.')+'</p>';
+
+  if(libre){
+    const bJoin=document.createElement('button'); bJoin.className='gold-btn';
+    bJoin.textContent='PRENDRE UNE PLACE';
+    bJoin.onclick=()=>connect(()=>send({type:'join', code:p.code, name:myName}));
+    o.panel.appendChild(bJoin);
+  }
+  if(p.started){
+    const bWatch=document.createElement('button'); bWatch.className='gold-btn small';
+    bWatch.textContent='REGARDER LA PARTIE';
+    bWatch.onclick=()=>connect(()=>send({type:'join', code:p.code, name:myName, mode:'watch'}));
+    o.panel.appendChild(bWatch);
+  }
+  const bCancel=document.createElement('button'); bCancel.className='gold-btn small';
+  bCancel.textContent='ANNULER'; bCancel.onclick=()=>render();
+  o.panel.appendChild(bCancel);
 }
 
 function render(){
@@ -460,7 +550,17 @@ function render(){
     home.appendChild(name); home.appendChild(bC);
     const row=document.createElement('div'); row.style.cssText='display:flex;gap:10px;align-items:center;';
     row.appendChild(code); row.appendChild(bJ); home.appendChild(row);
+
+    // on retient le prenom au fil de la frappe : la liste se rafraichit toute seule et
+    // ne doit pas faire perdre ce qui est deja tape
+    name.value = myName || '';
+    name.addEventListener('input', ()=>{ myName = name.value; });
+
+    const rooms=document.createElement('div'); rooms.className='rooms'; rooms.id='rooms-list';
+    rooms.innerHTML='<h3>Parties en cours</h3><div class="empty">Recherche…</div>';
+    home.appendChild(rooms);
     root.appendChild(home);
+    refreshRooms();
     return;
   }
 
@@ -534,7 +634,7 @@ function render(){
   if(!V) return;
 
   // ---------- barre de score ----------
-  const myTeam = ME%2; // TEAM_OF = [0,1,0,1]
+  const myTeam = (ME<0 ? 0 : ME)%2; // TEAM_OF = [0,1,0,1] (spectateur : point de vue du siege 0)
   const hud=document.createElement('div'); hud.className='hud';
   const row=document.createElement('div'); row.className='hud-scores';
   const nous=V.scores[myTeam], eux=V.scores[1-myTeam];
@@ -712,8 +812,20 @@ function render(){
     const lt=iconBtn('ib-r1','🂠','Dernière main',()=>{ showLast=true; render(); });
     root.appendChild(lt);
   }
-  const say=iconBtn('ib-r2','💬','Dire',()=>{ showChat=!showChat; render(); });
-  root.appendChild(say);
+  if(!WATCHING){ // un spectateur ne parle pas a la table
+    const say=iconBtn('ib-r2','💬','Dire',()=>{ showChat=!showChat; render(); });
+    root.appendChild(say);
+  }
+
+  // mode spectateur : bandeau discret + bouton pour prendre une chaise (3e position a
+  // gauche, sous l'ambiance et le plein ecran : aucune superposition)
+  if(WATCHING){
+    const badge=document.createElement('div'); badge.className='watch-badge';
+    badge.textContent='👀 Tu regardes la partie';
+    root.appendChild(badge);
+    const chair=iconBtn('ib-l3','🪑','Prendre une place', ()=>send({type:'want-seat'}));
+    root.appendChild(chair);
+  }
   if(showChat){
     const cb=document.createElement('div'); cb.className='chat-bar';
     for(const ph of PHRASES_FLAT.slice(0,8)){

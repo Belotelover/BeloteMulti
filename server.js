@@ -496,7 +496,9 @@ wss.on('connection', (ws)=>{
       }
       case 'next':   E.nextRoundOrEnd(); break;
       case 'say': {
-        const all=[].concat(E.PHRASES.praise,E.PHRASES.regret,E.PHRASES.cheer,E.PHRASES.tease,E.PHRASES.polite);
+        // toutes les categories de la liste fermee (aucun texte libre n'est accepte).
+        // On les parcourt dynamiquement pour ne plus rien oublier lors d'un ajout.
+        const all=Object.values(E.PHRASES).reduce((a,b)=>a.concat(b),[]);
         if(all.includes(msg.text)) E.say(mySeat, msg.text); // uniquement les phrases fermees
         break;
       }

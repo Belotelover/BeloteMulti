@@ -442,7 +442,9 @@ const PHRASES = {
   regret: ['Dommage', 'Presque !', 'Aïe', 'Pas de chance'],
   cheer:  ['Allez là !', 'On y va', 'Courage'],
   tease:  ['Regarde la route 😄', 'Tu dors ?', 'Ça fait mal'],
-  polite: ['Salut !', 'Bonne partie', 'Merci']
+  polite: ['Salut !', 'Bonne partie', 'Merci'],
+  // phrases reservees aux joueurs humains (les bots n'y piochent pas)
+  humanOnly: ["Salut c'est Franck Leboeuf"]
 };
 function pick(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
 

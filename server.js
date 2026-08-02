@@ -76,14 +76,30 @@ function createRoom(){
     seats: [null, null, null, null],
     pending: new Set(), // connexions ayant rejoint mais n'ayant pas encore choisi de siege
     watchers: new Set(), // connexions qui REGARDENT la partie sans y jouer
+    // qui etait assis a chaque place (pour le liseré doré au retour) et quel bot un
+    // humain a deloge en s'asseyant (pour lui rendre sa place a l'identique)
+    memoireSieges: [null,null,null,null],   // { name, token }
+    botDeloge:     [null,null,null,null],   // personnalite du bot remplace
     lastActivity: Date.now()
   };
   // cablage FX -> reseau
   E.FX.render = ()=>broadcast(room);
   const SPEED = process.env.FAST ? 12 : 1; // FAST=1 : tests accélérés uniquement
+  // Table sans personne : les bots deroulent au ralenti pour laisser le temps de revenir.
+  // Des qu'un humain (joueur OU spectateur) est la, on repasse au rythme normal.
   E.FX.later  = (fn, ms)=>{
     const g = E.S ? E.S.gen : 0;
-    setTimeout(()=>{ if(rooms.has(room.code) && E.S && E.S.gen===g) fn(); }, Math.max(20, ms/SPEED));
+    const debut = Date.now();
+    // Le delai est RECALCULE en continu : si quelqu'un se reconnecte pendant une attente
+    // longue, le coup part immediatement au lieu d'attendre la fin des 5-6 secondes.
+    const attendu = ()=> (personnePresente(room) ? ms : Math.max(ms, IDLE_STEP_MS)) / SPEED;
+    const tick = ()=>{
+      if(!rooms.has(room.code) || !E.S || E.S.gen!==g) return; // partie finie ou manche changee
+      const reste = attendu() - (Date.now()-debut);
+      if(reste <= 0) return fn();
+      setTimeout(tick, Math.min(300, reste));
+    };
+    setTimeout(tick, Math.max(20, Math.min(300, ms/SPEED)));
   };
   E.FX.trickChatter = (winner)=>{ /* les bots parlent via say() qui passe par FX.render/later */
     try{
@@ -184,28 +200,44 @@ function armInactivityTimer(room){
   room.inactivityTimer = setTimeout(()=>{
     // on revalide que c'est toujours le meme humain qui bloque (rien n'a bouge entre-temps)
     if(humanSeatToAct(room)!==seat) return;
-    // meme traitement qu'une deconnexion : le siege devient "BOT <prenom>" et le bot joue
+    // meme traitement qu'une deconnexion : le bot d'origine reprend le siege
     onInactivityTimeout(room, seat);
   }, INACTIVITY_MS);
 }
 function onInactivityTimeout(room, seat){
   const s=room.seats[seat];
   if(!s) return;
-  // on coupe proprement sa socket (il pourra revenir via son pseudo -> "BOT <prenom>")
+  // on coupe proprement sa socket (sa chaise sera signalee d'un liseré doré a son retour)
   const ws=s.ws;
   if(ws){ try{ ws._inactivityKicked=true; ws.close(); }catch(e){} }
-  onDisconnect(room, seat); // libere le siege, installe "BOT <prenom>", relance le jeu
+  onDisconnect(room, seat); // libere le siege, rend sa place au bot, relance le jeu
 }
 
 // Resume public des parties : ce qu'il faut pour choisir laquelle rejoindre, rien de plus
 // (aucune carte, aucun etat de jeu ne transite ici).
+// Y a-t-il quelqu'un devant la table ? (joueur assis connecte, spectateur, ou personne
+// en train de choisir sa place). Sinon les bots jouent au ralenti.
+const IDLE_STEP_MS = 5500;
+function personnePresente(room){
+  if(room.watchers.size || room.pending.size) return true;
+  return [0,1,2,3].some(i=>room.seats[i] && room.seats[i].ws);
+}
+
 function roomsSummary(){
   const out=[];
   for(const [code,room] of rooms){
     const joueurs=[0,1,2,3].filter(i=>room.seats[i] && room.seats[i].ws).map(i=>room.seats[i].name);
     const libres=[0,1,2,3].filter(i=>!room.seats[i]).length;
-    if(!joueurs.length && !room.pending.size) continue; // partie vide : inutile de l'afficher
-    out.push({ code, joueurs, libres, started: room.started, enAttente: room.pending.size });
+    // personnes attendues : leur chaise est desormais tenue par un bot
+    // pour qu'une personne deconnectee retrouve sa table sans avoir a retenir le code
+    // qui est attendu : les personnes dont la chaise est desormais tenue par un bot
+    const absents = [0,1,2,3]
+      .filter(i=>!room.seats[i] && room.memoireSieges[i])
+      .map(i=>room.memoireSieges[i].name);
+    // on n'ecarte que les tables reellement vides : personne connecte, personne attendu
+    if(!joueurs.length && !room.pending.size && !room.watchers.size && !absents.length) continue;
+    out.push({ code, joueurs, libres, absents, started: room.started,
+               enAttente: room.pending.size, spectateurs: room.watchers.size });
   }
   // les tables les plus animees d'abord, puis celles qui attendent encore du monde
   out.sort((a,b)=> b.joueurs.length-a.joueurs.length || a.started-b.started);
@@ -214,11 +246,20 @@ function roomsSummary(){
 
 function playersInfo(room){
   return [0,1,2,3].map(i=>{
+    const memo = room.memoireSieges[i];
+    const base = { seat:i, ancien: memo ? memo.name : null }; // pour le liseré doré au retour
     const s=room.seats[i];
-    if(s) return { seat:i, name:s.name, human:true, connected: !!s.ws };
+    if(s) return Object.assign(base, { name:s.name, human:true, connected: !!s.ws });
     const bots = room.E.S && room.E.S.bots;
-    return { seat:i, name: bots && bots[i] ? bots[i].name : 'Bot', human:false, connected:true };
+    return Object.assign(base, { name: bots && bots[i] ? bots[i].name : 'Bot', human:false, connected:true });
   });
+}
+
+// petit mot passager affiche dans le bandeau (arrivee d'un joueur, d'un spectateur...)
+function annonce(room, texte){
+  const msg = { type:'notice', text: texte };
+  for(const s of room.seats) if(s && s.ws) send(s.ws, msg);
+  for(const w of room.watchers) send(w, msg);
 }
 
 function startGame(room){
@@ -259,11 +300,32 @@ function autoAdvanceIfEmpty(room){
 
 // noms de secours pour un siege humain qui n'avait jamais eu de personnalite de bot
 // (normal : seuls les sieges bots DES LE DEBUT en recoivent une via shuffledBotSeats())
+// memes personnalites que le moteur : un siege repris par un bot garde un caractere coherent
 const FALLBACK_BOT_NAMES = [
-  {name:'Gilou', style:'Équilibré', threshold:21},
-  {name:'Béa',   style:'Prudente',  threshold:25},
-  {name:'Mimi',  style:'Agressif',  threshold:19}
+  {name:'Noël',    style:'Équilibré', threshold:21},
+  {name:'Valoche', style:'Prudente',  threshold:25},
+  {name:'Gilou',   style:'Agressif',  threshold:19}
 ];
+// Rend au siege le bot qui l'occupait avant qu'un humain ne s'y installe. Si personne
+// n'a ete deloge (humain assis depuis le debut), on prend une personnalite ABSENTE de la
+// table, pour ne pas creer deux fois le meme caractere.
+function rendreSonBot(room, E, seatIdx){
+  const memo = room.botDeloge[seatIdx];
+  if(memo){
+    E.S.bots[seatIdx] = Object.assign({}, memo);
+    room.botDeloge[seatIdx] = null;
+    return;
+  }
+  const personas = E.BOT_PERSONAS || [];
+  const dejaLa = new Set([0,1,2,3]
+    .filter(i=>i!==seatIdx && E.S.bots[i] && E.S.bots[i].style!=='Humain')
+    .map(i=>E.S.bots[i].name));
+  const libres = personas.filter(p=>!dejaLa.has(p.name));
+  const choix = (libres.length ? libres : personas)[Math.floor(Math.random()*(libres.length||personas.length))];
+  E.S.bots[seatIdx] = choix ? Object.assign({}, choix) : null;
+  if(!E.S.bots[seatIdx]) ensureBotPersona(E, seatIdx);
+}
+
 function ensureBotPersona(E, seatIdx){
   if(!E.S || !E.S.bots) return;
   const cur = E.S.bots[seatIdx];
@@ -279,10 +341,11 @@ function onDisconnect(room, seatIdx){
   const seat = room.seats[seatIdx];
   if(!seat) return;
   const departedName = seat.name;
-  // Le siege redevient une chaise de BOT ordinaire, entierement libre : n'importe qui
-  // (y compris le joueur parti, via son pseudo ou un simple clic) peut la reprendre comme
-  // n'importe quelle chaise vide. Le bot prend le nom "BOT <prenom>" pour qu'on voie qui il
-  // remplace. Plus de statut "deconnecte" a gerer : un seul cas, la chaise libre.
+  // On retient QUI occupait ce siege : au retour, sa chaise sera signalee d'un liseré doré.
+  room.memoireSieges[seatIdx] = { name: seat.name, token: seat.token };
+  // Le siege redevient une chaise de bot ordinaire, entierement libre : n'importe qui peut
+  // s'y asseoir. Le bot reprend son VRAI nom et sa VRAIE facon de jouer : la table n'est
+  // pas destabilisee par un depart.
   room.seats[seatIdx] = null;
   syncHumans(room);
   const E=room.E, S=E.S;
@@ -293,10 +356,8 @@ function onDisconnect(room, seatIdx){
   if(!S || !room.started){ broadcastLobby(room); return; }
 
   // installe une vraie personnalite de bot (style + seuil) sur ce siege, puis on remplace
-  // juste son NOM affiche par "BOT <prenom>" pour montrer qui il remplace
-  E.S.bots[seatIdx] = null;         // efface l'ancienne identite humaine
-  ensureBotPersona(E, seatIdx);     // reinstalle une personnalite de bot complete
-  E.S.bots[seatIdx].name = 'BOT ' + departedName;
+  E.S.bots[seatIdx] = null;              // efface l'identite humaine
+  rendreSonBot(room, E, seatIdx);        // le bot d'origine revient, tel qu'il jouait
   // si le jeu attendait CE joueur, on relance la boucle pour que le bot joue a sa place.
   // (Sans cela la table gele : le moteur s'etait arrete en attendant un clic humain.)
   if(S.screen==='bidding' && S.biddingTurn===seatIdx) E.FX.later(()=>E.advanceBidding(), 400);
@@ -326,7 +387,12 @@ wss.on('connection', (ws)=>{
 
   ws.on('message', (raw)=>{
     let msg; try{ msg=JSON.parse(raw); }catch(e){ return; }
-    if(ws._room) ws._room.lastActivity=Date.now();
+    if(ws._room){
+      ws._room.lastActivity=Date.now();
+      // signe de vie du siege : sert a distinguer un joueur present d'une connexion fantome
+      const s = ws._seat>=0 ? ws._room.seats[ws._seat] : null;
+      if(s && s.ws===ws) s.lastSeen = Date.now();
+    }
 
     // battement de coeur : repond a TOUT moment (meme avant de rejoindre une partie ou
     // avant d'avoir choisi un siege) — c'est ce qui permet au client de detecter une
@@ -353,17 +419,13 @@ wss.on('connection', (ws)=>{
           reclaimSeat(room, ws, idx);
           return;
         }
-      }
-      // reconnexion par PSEUDO : si un siege est tenu par le bot "BOT <pseudo>" (donc issu de
-      // TON depart), on t'y rassoit automatiquement. Meme pseudo = meme place, y compris
-      // depuis un autre appareil sans le jeton. Le bot cede la place et redevient toi.
-      const wantName = cleanName(msg.name);
-      if(wantName && room.E.S && room.E.S.bots){
-        const idx=[0,1,2,3].findIndex(i=>!room.seats[i] && room.E.S.bots[i] && room.E.S.bots[i].name==='BOT '+wantName);
-        if(idx>=0){
-          reseatReturningPlayer(room, ws, idx, wantName);
-          return;
-        }
+        // Rafraichir la page ferme l'ancienne connexion AVANT que la nouvelle n'arrive :
+        // le siege vient donc d'etre libere et un bot l'occupe. On reconnait quand meme le
+        // jeton grace a la memoire du siege et on rend sa place immediatement, sinon un
+        // simple F5 couterait sa chaise au joueur pendant que la partie continue sans lui.
+        const memo=[0,1,2,3].findIndex(i=>!room.seats[i] && room.memoireSieges[i]
+                                       && room.memoireSieges[i].token===msg.token);
+        if(memo>=0){ reprendreSaPlace(room, ws, memo); return; }
       }
       // mode spectateur : on regarde sans prendre de place. Si la partie n'a pas encore
       // commence, il n'y a rien a regarder : on bascule sur le choix de siege.
@@ -389,7 +451,22 @@ wss.on('connection', (ws)=>{
     // assis, on vient de rejoindre) que pour changer de siege plus tard dans le lobby ---
     if(msg.type==='sit'){
       const t = msg.seat|0;
-      if(t<0 || t>3 || myRoom.seats[t]!==null) return; // la chaise doit etre libre
+      if(t<0 || t>3) return;
+      // Chaise occupee : on ne la prend PAS, sauf s'il s'agit de la sienne tenue par une
+      // connexion fantome (plus aucun signe de vie). C'est le seul cas ou le verrou
+      // desservirait le joueur : il revient et attend son propre fantome.
+      if(myRoom.seats[t]!==null){
+        const occupant = myRoom.seats[t];
+        const memeJoueur = occupant.name === cleanName(ws._name)
+                        || (msg.token && occupant.token === msg.token);
+        const fantome = !occupant.ws || (Date.now() - (occupant.lastSeen||0) > 12000);
+        if(!(memeJoueur && fantome)) return;
+        // on detache d'abord la socket fantome du siege, PUIS on la ferme : ainsi sa
+        // fermeture tardive ne viendra pas ejecter le joueur qui reprend la place
+        const fantomeWs = occupant.ws;
+        myRoom.seats[t] = null;   // la place est rendue, on peut s'y asseoir
+        if(fantomeWs){ try{ fantomeWs.close(); }catch(e){} }
+      }
       // en cours de partie, un joueur DEJA assis ne change plus de place (verrou),
       // mais un NOUVEL arrivant peut s'installer sur une chaise tenue par un bot :
       // c'est tout l'interet de pouvoir rejoindre a n'importe quel moment
@@ -433,6 +510,7 @@ wss.on('connection', (ws)=>{
     room.watchers.add(ws);
     send(ws,{type:'watch', code:room.code, players:playersInfo(room),
              view: room.E.S ? room.E.viewFor(-1) : null});
+    annonce(room, 'Un voyeur nommé ' + ws._name + ' s\'est connecté 👀');
   }
 
   function enterAsPending(room, name){
@@ -442,22 +520,37 @@ wss.on('connection', (ws)=>{
   }
 
   ws.on('close', ()=>{
-    if(ws._room) ws._room.watchers.delete(ws);
-    if(ws._room && ws._seat>=0) onDisconnect(ws._room, ws._seat);
-    else if(ws._room) ws._room.pending.delete(ws); // depart avant meme d'avoir choisi une place
+    const room = ws._room;
+    if(!room) return;
+    room.watchers.delete(ws);
+    room.pending.delete(ws);
+    if(ws._seat<0) return;
+    // IMPORTANT : ne liberer le siege QUE s'il est encore tenu par CETTE connexion.
+    // Lors d'un rafraichissement de page, la nouvelle connexion reprend la place avant
+    // que la fermeture de l'ancienne n'arrive : sans ce controle, ce depart tardif
+    // ejectait le joueur qui venait tout juste de revenir (ecran fige, partie qui avance).
+    const seat = room.seats[ws._seat];
+    if(!seat || seat.ws !== ws) return;
+    onDisconnect(room, ws._seat);
   });
 });
 
-// Un joueur revient et une place porte "BOT <son pseudo>" : on la lui rend. Le siege
-// redevient humain a son nom (nouveau jeton pour les prochaines reconnexions rapides).
-function reseatReturningPlayer(room, ws, idx, name){
-  const token = crypto.randomBytes(12).toString('hex');
-  room.seats[idx] = { name, token, ws };
-  ws._room = room; ws._seat = idx;
-  room.pending.delete(ws);
+// Le joueur revient sur une place qu'il occupait et qui est retombee aux mains d'un bot
+// (cas typique du rafraichissement de page). On lui rend son siege, son nom et son jeton.
+function reprendreSaPlace(room, ws, idx){
+  const memo = room.memoireSieges[idx];
+  if(!memo) return;
+  if(room.E.S && room.E.S.bots[idx] && room.E.S.bots[idx].style!=='Humain'){
+    room.botDeloge[idx] = Object.assign({}, room.E.S.bots[idx]); // on pourra lui rendre sa place
+  }
+  room.pending.delete(ws); room.watchers.delete(ws);
+  room.seats[idx] = { name: memo.name, token: memo.token, ws, lastSeen: Date.now() };
+  room.memoireSieges[idx] = null;
+  ws._room=room; ws._seat=idx; ws._name=memo.name;
   syncHumans(room);
-  if(room.E.S) room.E.S.bots[idx] = { name, style:'Humain', threshold:0 };
-  send(ws,{type:'joined', code:room.code, seat:idx, token, started:room.started});
+  if(room.E.S) room.E.S.bots[idx] = { name: memo.name, style:'Humain', threshold:0 };
+  send(ws,{type:'joined', code:room.code, seat:idx, token:memo.token, started:room.started});
+  annonce(room, memo.name + ' est de retour');
   if(room.started) broadcast(room); else broadcastLobby(room);
 }
 
@@ -474,10 +567,15 @@ function reclaimSeat(room, ws, idx){
 function seatConnection(room, ws, t){
   if(room.seats[t]!==null) return false;
   room.watchers.delete(ws); // il prend une chaise : ce n'est plus un spectateur
+  room.memoireSieges[t] = null; // la place est reprise : plus de liseré doré pour l'ancien occupant
+  // on retient le bot qu'on deloge, pour pouvoir lui rendre sa place a l'identique
+  if(room.E.S && room.E.S.bots[t] && room.E.S.bots[t].style!=='Humain'){
+    room.botDeloge[t] = Object.assign({}, room.E.S.bots[t]);
+  }
   if(ws._seat<0){
     room.pending.delete(ws);
     const token=crypto.randomBytes(12).toString('hex');
-    room.seats[t] = { name: cleanName(ws._name), token, ws };
+    room.seats[t] = { name: cleanName(ws._name), token, ws, lastSeen: Date.now() };
   }else{
     room.seats[t]=room.seats[ws._seat];
     room.seats[ws._seat]=null;
@@ -488,6 +586,7 @@ function seatConnection(room, ws, t){
   // (remplace un bot), le moteur doit connaitre son vrai nom pour ses textes internes
   if(room.E.S) room.E.S.bots[t] = { name: room.seats[t].name, style:'Humain', threshold:0 };
   send(ws,{type:'joined', code:room.code, seat:t, token:room.seats[t].token, started:room.started});
+  annonce(room, room.seats[t].name + ' prend place à table');
   if(room.started){
     broadcast(room); // partie en cours : il recoit immediatement sa vue du jeu et joue
   }else{

@@ -87,8 +87,13 @@
   .room-row .who small{display:block;font-weight:400;opacity:.75;font-size:11px;}
   .room-row .tag{font-size:10.5px;font-weight:800;padding:4px 8px;border-radius:10px;white-space:nowrap;}
   .tag-live{background:#8d2230;color:#fff;}
-  .tag-wait{background:#1f7a45;color:#dff3e6;}
+  .tag-wait{background:var(--felt1);color:#dff3e6;}
+  .tag-back{background:var(--gold2);color:var(--ink);}
   .rooms .empty{font-size:12px;color:#a9c7b4;text-align:center;padding:6px 0;}
+  .hud-notice{color:#f4d99a;font-weight:700;animation:noticeIn .35s ease-out;}
+  @keyframes noticeIn{ from{ opacity:0; transform:translateY(-4px); } }
+  /* meme liseré doré que les cartes qui viennent d'arriver : on reste coherent */
+  .seat-mine{box-shadow:0 0 0 2px #f4d99a, 0 4px 14px rgba(0,0,0,.55);}
   .watch-badge{position:absolute;top:112px;left:50%;transform:translateX(-50%);z-index:9;
     background:rgba(0,0,0,.55);border:1px solid rgba(244,217,154,.45);color:#f4d99a;
     padding:5px 12px;border-radius:14px;font-size:11.5px;font-weight:700;white-space:nowrap;}
@@ -125,7 +130,7 @@
   .gold-btn.small{padding:7px 14px;font-size:13px;}
   .deal-choice-bar{position:absolute;top:56px;left:0;right:0;z-index:20;background:rgba(18,13,7,.92);border-bottom:2px solid var(--gold-border);box-shadow:0 4px 10px rgba(0,0,0,.5);padding:10px;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:10px;}
   .suit-btn{width:40px;height:40px;font-size:20px;border-radius:8px;border:2px solid var(--gold-border);background:#fdfcf6;cursor:pointer;}
-  .panel{background:linear-gradient(180deg,#1f7a45,#0e4425);border:2px solid var(--gold-border);border-radius:14px;padding:22px;max-width:340px;width:88%;text-align:center;color:#f4f4f4;box-shadow:0 10px 30px rgba(0,0,0,.6);}
+  .panel{background:linear-gradient(180deg,var(--felt1),var(--felt2));border:2px solid var(--gold-border);border-radius:14px;padding:22px;max-width:340px;width:88%;text-align:center;color:#f4f4f4;box-shadow:0 10px 30px rgba(0,0,0,.6);}
   .panel h2{margin-top:0;color:#f4d99a;font-size:20px;}
   .panel .btn-row{display:flex;gap:12px;justify-content:center;margin-top:16px;flex-wrap:wrap;}
   .suit-pick{display:flex;gap:10px;justify-content:center;margin-top:14px;flex-wrap:wrap;}
@@ -280,7 +285,7 @@ document.addEventListener('webkitfullscreenchange', render);
 let showLast=false, showChat=false;
 
 const SUITS=['\u2665','\u2666','\u2663','\u2660'];
-const PHRASES_FLAT=['Bien joué !','Joli coup','Chapeau','Bien vu','Regarde la route 😄','Allez là !','Tu dors ?','Ça fait mal','Dommage','Presque !','Aïe','Pas de chance','On y va','Courage','Salut !','Bonne partie','Merci'];
+const PHRASES_FLAT=["Salut c'est Franck Leboeuf",'Bien joué !','Joli coup','Chapeau','Bien vu','Regarde la route 😄','Tu dors ?','Aïe','Ça fait mal','Dommage','Allez là !','Bonne partie'];
 
 function screenSlot(seat){
   const base = ME<0 ? 0 : ME;   // spectateur : on regarde la table depuis le siege 0
@@ -297,6 +302,7 @@ let handIds=[];        // ids de ma main au rendu precedent
 let freshIds=[];       // cartes en cours d'affichage sur la rangee du dessus
 let freshTimer=null;
 let WATCHING=false;    // je regarde la partie sans y jouer (aucun siege)
+let notice=null, noticeTimer=null; // petit mot passager dans le bandeau
 let flipPending=false; // demande d'animer le rangement au prochain rendu
 let freshEntered=false;// l'animation d'arrivee a deja ete jouee (evite qu'elle rejoue a chaque rendu)
 const FRESH_PAUSE_MS = 2500;
@@ -356,7 +362,16 @@ function connect(then){
   connecting=true;
   if(ws){ try{ ws.onclose=null; ws.onmessage=null; ws.onopen=null; ws.close(); }catch(e){} }
   const proto = location.protocol==='https:'?'wss:':'ws:';
-  ws = new WebSocket(proto+'//'+location.host);
+  try{
+    ws = new WebSocket(proto+'//'+location.host);
+  }catch(e){
+    // sans ce garde-fou, l'echec laisserait 'connecting' a vrai et TOUTE tentative
+    // ulterieure de connexion serait ignoree en silence
+    connecting=false; onOpenQueue.length=0;
+    notice='Connexion au serveur impossible — réessaie dans un instant';
+    render(); return;
+  }
+  ws.onerror = ()=>{ /* le navigateur declenche ensuite onclose, qui fait le necessaire */ };
   ws.onopen=()=>{
     connecting=false; disconnected=false; startHeartbeat(); render();
     const q=onOpenQueue.slice(); onOpenQueue.length=0;
@@ -365,6 +380,12 @@ function connect(then){
   ws.onmessage=(ev)=>{
     const m=JSON.parse(ev.data);
     if(m.type==='pong'){ lastPong=Date.now(); return; }
+    if(m.type==='notice'){
+      notice=m.text;
+      if(noticeTimer) clearTimeout(noticeTimer);
+      noticeTimer=setTimeout(()=>{ notice=null; noticeTimer=null; render(); }, 4500);
+      render(); return;
+    }
     if(m.type==='error'){
       // la partie n'existe plus (ex: fermee apres 2h) : on oublie la session pour ne pas
       // boucler indefiniment sur une reconnexion vouee a echouer
@@ -386,7 +407,17 @@ function connect(then){
   ws.onclose=()=>{
     connecting=false;
     stopHeartbeat();
-    if(intentionalClose){ intentionalClose=false; onOpenQueue.length=0; return; } // depart volontaire
+    onOpenQueue.length=0;
+    if(intentionalClose){ intentionalClose=false; return; } // depart volontaire
+    const saved0=sessionStorage.getItem('belote');
+    if(!saved0){
+      // aucune partie en cours a rejoindre : inutile de promettre une reconnexion
+      disconnected=false;
+      notice='Connexion au serveur impossible — réessaie dans un instant';
+      if(noticeTimer) clearTimeout(noticeTimer);
+      noticeTimer=setTimeout(()=>{ notice=null; noticeTimer=null; render(); }, 6000);
+      render(); return;
+    }
     disconnected=true; render();
     setTimeout(()=>{
       const saved=sessionStorage.getItem('belote');
@@ -454,13 +485,18 @@ function fillRooms(box, list){
   for(const p of list){
     const row=document.createElement('div'); row.className='room-row';
     const who=document.createElement('div'); who.className='who';
-    const noms = p.joueurs.length ? p.joueurs.map(esc).join(', ') : 'personne encore';
+    const absents=(p.absents||[]);
+    const deserte = !p.joueurs.length && absents.length; // table tenue par les bots
+    let noms;
+    if(p.joueurs.length) noms = p.joueurs.map(esc).join(', ');
+    else if(absents.length) noms = 'les bots jouent pour ' + absents.map(esc).join(', ');
+    else noms = 'personne encore';
     who.innerHTML='<span>'+esc(p.code)+'</span><small>'+noms
       + (p.libres ? ' · '+p.libres+' place'+(p.libres>1?'s':'')+' libre'+(p.libres>1?'s':'') : ' · table complète')
       + '</small>';
     const tag=document.createElement('span');
-    tag.className='tag '+(p.started?'tag-live':'tag-wait');
-    tag.textContent = p.started ? 'en cours' : 'en attente';
+    tag.className='tag '+(deserte ? 'tag-back' : p.started?'tag-live':'tag-wait');
+    tag.textContent = deserte ? 'reviens !' : (p.started ? 'en cours' : 'en attente');
     row.appendChild(who); row.appendChild(tag);
     row.onclick=()=>openRoomChoice(p);
     box.appendChild(row);
@@ -522,6 +558,14 @@ function render(){
     const tt=document.createElement('div'); tt.className='theme-toast'; tt.textContent=clientToast;
     root.appendChild(tt);
   }
+  // hors partie (accueil, choix de place), le bandeau de jeu n'existe pas : on affiche
+  // quand meme les annonces, sinon un message d'erreur resterait invisible
+  if(notice && !V){
+    const nt=document.createElement('div'); nt.className='theme-toast';
+    nt.style.background='rgba(90,50,20,.92)'; nt.style.color='#f4d99a';
+    nt.textContent=notice;
+    root.appendChild(nt);
+  }
   if(disconnected){
     const dc=document.createElement('div'); dc.className='theme-toast';
     dc.style.background='rgba(160,30,30,.88)';
@@ -534,13 +578,13 @@ function render(){
     const home=document.createElement('div'); home.className='home-screen';
     home.innerHTML='<p>Belote du Gang — les sièges vides sont tenus par les bots.</p>';
     const name=document.createElement('input'); name.placeholder='Ton prénom'; name.maxLength=14;
-    name.style.cssText='padding:10px;border-radius:10px;border:2px solid #5b3a1a;font-size:15px;text-align:center;';
+    name.style.cssText='padding:10px;border-radius:10px;border:2px solid var(--gold-border);font-size:15px;text-align:center;';
     const bC=document.createElement('button'); bC.className='gold-btn'; bC.textContent='CRÉER UNE PARTIE';
     // garde anti double-clic : sans cela, deux clics rapides creaient DEUX parties
     bC.onclick=()=>{ if(bC.disabled) return; bC.disabled=true; bJ.disabled=true;
       myName=name.value; connect(()=>send({type:'create', name:myName})); };
     const code=document.createElement('input'); code.placeholder='CODE'; code.maxLength=4;
-    code.style.cssText='padding:10px;border-radius:10px;border:2px solid #5b3a1a;font-size:15px;text-align:center;text-transform:uppercase;width:90px;';
+    code.style.cssText='padding:10px;border-radius:10px;border:2px solid var(--gold-border);font-size:15px;text-align:center;text-transform:uppercase;width:90px;';
     const bJ=document.createElement('button'); bJ.className='gold-btn'; bJ.textContent='REJOINDRE';
     bJ.onclick=()=>{ if(bJ.disabled) return;
       const wanted=code.value.trim().toUpperCase();
@@ -586,24 +630,27 @@ function render(){
       const p=PLAYERS && PLAYERS.find(x=>x.seat===i);
       const isHuman = p && p.human;
       const isFree  = !isHuman;                       // toute chaise non-humaine est libre (bot)
-      const isReplacementBot = !isHuman && p && /^BOT /.test(p.name); // bot qui remplace un parti
+      // c'est la chaise ou J'ETAIS assis : liseré doré, comme les cartes qu'on vient de recevoir
+      const maPlace = !!(p && p.ancien && myName && p.ancien===myName && i!==ME);
       const chip=document.createElement('div');
+      if(maPlace) chip.className='seat-mine';
       chip.style.cssText='width:100%;min-height:62px;display:flex;flex-direction:column;'
         +'align-items:center;justify-content:center;text-align:center;padding:8px 6px;border-radius:12px;'
         +'font-size:12.5px;font-weight:700;line-height:1.25;'
-        +'border:2px solid '+(i===ME?'#f4d99a':(isReplacementBot?'#e0a94a':'rgba(255,255,255,.3)'))+';'
+        +'border:2px solid '+(i===ME||maPlace?'#f4d99a':'rgba(255,255,255,.3)')+';'
         +'background:rgba(0,0,0,'+(isFree?'.35':'.55')+');color:'+teamCol[i%2]+';'
-        +(isFree && i!==ME ? 'cursor:pointer;' : '');
+        +((isFree||maPlace) && i!==ME ? 'cursor:pointer;' : '');
       chip.style.gridArea=cellOf[i];
 
       let label, sub;
       if(isHuman){ label='👤 '+esc(p.name); sub = i===ME ? '(toi)' : 'prêt'; }
-      else if(isReplacementBot){ label='🤖 '+esc(p.name); sub='clique pour prendre la place'; }
+      else if(STARTED){ label='🤖 '+esc(p.name); sub='chaise libre — clique pour t\'asseoir'; }
       else { label='🤖 chaise libre'; sub='clique pour t\'asseoir'; }
+      if(maPlace) sub='⭐ ta place — clique pour reprendre';
       const teamName = (i%2)===0 ? 'verte' : 'rouge';
       chip.innerHTML='<div>'+label+'</div><small style="opacity:.8;font-weight:400">'+sub+'</small>'
         +'<small style="opacity:.55;font-size:10px">équipe '+teamName+'</small>';
-      if(isFree && i!==ME) chip.onclick=()=>send({type:'sit', seat:i});
+      if((isFree||maPlace) && i!==ME) chip.onclick=()=>send({type:'sit', seat:i, token:TOKEN});
       return chip;
     }
     // centre de la croix : petit rappel des equipes
@@ -641,6 +688,13 @@ function render(){
   row.innerHTML='<span class="team nous">Nous <small>'+Math.min(nous,1000)+'/1000</small></span>'
     +'<span class="team eux">Eux <small>'+Math.min(eux,1000)+'/1000</small></span>';
   hud.appendChild(row);
+
+  // annonce passagere (arrivee d'un joueur ou d'un spectateur), au meme endroit que le reste
+  if(notice){
+    const nt=document.createElement('div'); nt.className='hud-round hud-notice';
+    nt.textContent=notice;
+    hud.appendChild(nt);
+  }
 
   // code de la partie + TON pseudo, toujours visibles (meme en cours de jeu) : le code pour
   // qu'un ami rejoigne, le pseudo pour te reconnecter facilement au meme siege si tu bugues
@@ -828,7 +882,7 @@ function render(){
   }
   if(showChat){
     const cb=document.createElement('div'); cb.className='chat-bar';
-    for(const ph of PHRASES_FLAT.slice(0,8)){
+    for(const ph of PHRASES_FLAT){
       const b=document.createElement('button'); b.textContent=ph;
       b.onclick=()=>{ showChat=false; send({type:'say', text:ph}); render(); };
       cb.appendChild(b);

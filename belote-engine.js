@@ -166,23 +166,22 @@ function advanceBidding(){
   }
 }
 
-// Les 3 personnalites (style de jeu) sont fixes ; les noms affiches sont piochés au hasard
-// dans cette liste de 5 a chaque partie. Le style reste ce qui pilote le jeu, pas le nom.
-const BOT_NAMES = ['Valoche', 'Noël', 'Mimi', 'Béa', 'Gilou'];
-const BOT_STYLES = [
-  {style:'Agressif',   threshold:19},
-  {style:'Prudente',   threshold:25},
-  {style:'Équilibré',  threshold:21}
+// Chaque bot a DESORMAIS une personnalite fixe, liee a son nom : on retrouve le meme
+// caractere de partie en partie. Les seuils de prise (19/21/25) sont inchanges, seul
+// le rattachement nom <-> style devient stable.
+const BOT_PERSONAS = [
+  {name:'Gilou',   style:'Agressif',   threshold:19},
+  {name:'Béa',     style:'Agressif',   threshold:19},
+  {name:'Valoche', style:'Prudente',   threshold:25},
+  {name:'Mimi',    style:'Prudente',   threshold:25},
+  {name:'Noël',    style:'Équilibré',  threshold:21},
+  {name:'Gisèle',  style:'Équilibré',  threshold:21}
 ];
-const BOT_PERSONAS = BOT_STYLES.map((s,i)=>({name:BOT_NAMES[i], style:s.style, threshold:s.threshold}));
 function shuffledBotSeats(){
-  // noms melanges (5 dispo -> on en prend 3 differents) + les 3 styles melanges independamment
-  const names = BOT_NAMES.slice();
-  for(let i=names.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [names[i],names[j]]=[names[j],names[i]]; }
-  const styles = BOT_STYLES.slice();
-  for(let i=styles.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [styles[i],styles[j]]=[styles[j],styles[i]]; }
-  const personas = styles.map((s,i)=>({name:names[i], style:s.style, threshold:s.threshold}));
-  return {1:personas[0], 2:personas[1], 3:personas[2]};
+  // on tire 3 bots differents parmi les 6 ; chacun apporte SA personnalite
+  const pool = BOT_PERSONAS.slice();
+  for(let i=pool.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [pool[i],pool[j]]=[pool[j],pool[i]]; }
+  return {1:pool[0], 2:pool[1], 3:pool[2]};
 }
 
 // évaluation réaliste d'une main pour une couleur d'atout donnée :
@@ -1040,6 +1039,6 @@ if (typeof module !== 'undefined' && module.exports) {
     // (elles ne font rien si ce n'est pas le bon ecran ou si le siege est humain).
     playTurn, advanceBidding,
     evaluateSuit, botBestSuit, say, myPhraseChoices, PHRASES, pick,
-    SUITS, TEAM_OF
+    SUITS, TEAM_OF, BOT_PERSONAS
   };
 }

@@ -79,6 +79,8 @@ function newGame(){
     humans: new Set([0]), // sieges tenus par des humains (solo : toi ; multi : un par joueur connecte)
     bots: shuffledBotSeats(), // les 3 bots changent de place à chaque nouvelle partie
     bubbles: {0:null,1:null,2:null,3:null},
+    memoReponses: {},      // qui a deja repondu quoi (gag une fois par partie, temps de repos)
+    reponseEnCours: false, // un seul bot repond a la fois
     showChat: false,
     lastRoundOrder: null, // ordre du jeu ramassé à la fin de la manche précédente (null = tout premier coup, on mélange vraiment)
     pendingLitige: 0, // points "pendus" par un litige (81 partout), remis en jeu à la donne suivante
@@ -286,6 +288,7 @@ function finishDeal(){
   S.trick=[]; S.trickNum=0; S.roundPts=[0,0];
   S.lastTrick=null; S.showLastTrick=false;
   S.bubbles={0:null,1:null,2:null,3:null}; S.showChat=false; S.themeToast=null;
+  S.reponseEnCours=false;
   S.leader=nextP(S.dealer);
 
   // Belote-Rebelote : le joueur qui détient Roi + Dame d'atout annoncera en les jouant
@@ -448,27 +451,108 @@ const PHRASES = {
 };
 function pick(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
 
-function say(p, text){
+function say(p, text, estUneReponse){
   if(!S.bubbles) S.bubbles={0:null,1:null,2:null,3:null};
   S.bubbles[p]=text;
   FX.render();
   FX.later(()=>{ if(S.bubbles && S.bubbles[p]===text){ S.bubbles[p]=null; FX.render(); } }, 2600);
+  // une reponse ne declenche jamais de reponse : un seul echange, pas de ping-pong
+  if(!estUneReponse) peutEtreUneReponse(p, text);
+}
+
+// ---------- REPONSES DES BOTS ----------
+// IMPORTANT : la decision de repondre ne depend QUE de la phrase entendue, de qui l'a dite
+// (partenaire ou adversaire) et du caractere du bot. JAMAIS de ses cartes : sinon une bulle
+// deviendrait un indice sur sa main, donc une fuite d'information exploitable.
+const TAUX_REPONSE = {
+  'Agressif':  {franck:0.70, praise:0.15, tease:0.45, regret:0.35, cheer:0.30, polite:0.80},
+  'Équilibré': {franck:0.70, praise:0.30, tease:0.25, regret:0.30, cheer:0.40, polite:0.80},
+  'Prudente':  {franck:0.50, praise:0.25, tease:0.12, regret:0.20, cheer:0.40, polite:0.80}
+};
+function categorieDe(texte){
+  for(const cat of ['praise','regret','cheer','tease','polite','humanOnly']){
+    if(PHRASES[cat] && PHRASES[cat].indexOf(texte)>=0) return cat==='humanOnly' ? 'franck' : cat;
+  }
+  return null;
+}
+function reponsePour(style, cat, memeEquipe){
+  if(cat==='franck') return PHRASES.humanOnly[0];
+  if(cat==='praise') return pick(['Merci', 'Chapeau', 'On y va']);
+  if(cat==='polite') return pick(['Bonne partie', 'Merci']);
+  if(cat==='cheer')  return memeEquipe ? pick(['On y va','Courage'])
+                                       : (style==='Agressif' ? 'Allez là !' : pick(['Courage','On y va']));
+  if(cat==='regret') return memeEquipe ? pick(['Courage','On y va','Pas de chance'])
+                                       : (style==='Agressif' ? pick(PHRASES.tease) : pick(['Dommage','Pas de chance']));
+  // chambrage : chacun repond selon son temperament
+  if(style==='Agressif') return pick(PHRASES.tease);
+  if(style==='Prudente') return pick(['Bonne partie','Chapeau']);
+  return pick(['Presque !','Allez là !']);
+}
+function peutEtreUneReponse(auteur, texte){
+  if(!S || !S.bots) return;
+  if(S.screen!=='play' && S.screen!=='roundEnd') return;  // pas pendant les encheres
+  if(S.reponseEnCours) return;                            // un seul bot repond a la fois
+  const cat = categorieDe(texte);
+  if(!cat) return;
+  if(!S.memoReponses) S.memoReponses={};
+  const maintenant = Date.now();
+
+  const volontaires = [0,1,2,3].filter(p=>{
+    if(p===auteur) return false;
+    if(isHumanSeat(p)) return false;                      // seuls les bots repondent
+    const bot = S.bots[p];
+    if(!bot || bot.style==='Humain') return false;
+    const taux = TAUX_REPONSE[bot.style] || TAUX_REPONSE['Équilibré'];
+    const memo = S.memoReponses[p] || (S.memoReponses[p]={});
+    if(cat==='franck' && memo.franck) return false;       // le gag ne marche qu'une fois
+    if(cat==='polite' && memo.polite) return false;
+    if(memo.dernier && maintenant-memo.dernier < 30000) return false; // il vient de parler
+    return Math.random() < (taux[cat]||0);
+  });
+  if(!volontaires.length) return;
+
+  const qui = pick(volontaires);
+  const memo = S.memoReponses[qui];
+  if(cat==='franck') memo.franck=true;
+  if(cat==='polite') memo.polite=true;
+  memo.dernier = maintenant;
+  S.reponseEnCours = true;
+  const memeEquipe = TEAM_OF[qui]===TEAM_OF[auteur];
+  FX.later(()=>{
+    S.reponseEnCours = false;
+    if(S.screen==='play' || S.screen==='roundEnd'){
+      say(qui, reponsePour(S.bots[qui].style, cat, memeEquipe), true);
+    }
+  }, 1200 + Math.floor(Math.random()*1300));
 }
 
 // Les bots réagissent selon leur tempérament (celui qu'on garde en interne) : l'agressif
 // taquine et encourage, la prudente reste mesurée. Fréquence basse pour ne pas saturer.
+// Un bot chambre parfois son PROPRE partenaire : c'est humain, et ca colle au caractere.
+// Les agressifs s'en privent peu, les prudentes presque jamais.
+const CHAMBRE_SON_PARTENAIRE = {'Agressif':0.25, 'Équilibré':0.12, 'Prudente':0.05};
+
+// Bavardage apres un pli. Vaut pour le solo COMME pour le multijoueur : on ne regarde que
+// les sieges reellement tenus par un bot. Aucune decision ici ne depend des cartes.
 function maybeBotChatter(winner){
-  if(!S.bots || Math.random()>0.2) return;
-  const speakers=[1,2,3].filter(i=>i!==winner);
+  if(!S || !S.bots || Math.random()>0.2) return;
+  const speakers=[0,1,2,3].filter(i=>i!==winner && !isHumanSeat(i) && S.bots[i] && S.bots[i].style!=='Humain');
   if(!speakers.length) return;
   const p = pick(speakers);
   const style = S.bots[p].style;
   const wonTogether = TEAM_OF[p]===TEAM_OF[winner];
+  const piqueLePartenaire = Math.random() < (CHAMBRE_SON_PARTENAIRE[style] || 0.1);
   let bag;
-  if(wonTogether) bag = style==='Agressif' ? PHRASES.cheer.concat(PHRASES.praise) : PHRASES.praise;
-  else            bag = style==='Agressif' ? PHRASES.tease.concat(PHRASES.regret)
-                      : style==='Prudente' ? PHRASES.regret
-                      : PHRASES.regret.concat(PHRASES.cheer);
+  if(piqueLePartenaire){
+    // il s'en prend a son camp : petite pique, quel que soit le vainqueur du pli
+    bag = style==='Agressif' ? PHRASES.tease : PHRASES.tease.concat(PHRASES.regret);
+  } else if(wonTogether){
+    bag = style==='Agressif' ? PHRASES.cheer.concat(PHRASES.praise) : PHRASES.praise;
+  } else {
+    bag = style==='Agressif' ? PHRASES.tease.concat(PHRASES.regret)
+        : style==='Prudente' ? PHRASES.regret
+        : PHRASES.regret.concat(PHRASES.cheer);
+  }
   say(p, pick(bag));
 }
 
@@ -1040,7 +1124,7 @@ if (typeof module !== 'undefined' && module.exports) {
     // pendant son tour (le bot doit prendre le relais). Ces deux fonctions s'auto-protegent
     // (elles ne font rien si ce n'est pas le bon ecran ou si le siege est humain).
     playTurn, advanceBidding,
-    evaluateSuit, botBestSuit, say, myPhraseChoices, PHRASES, pick,
+    evaluateSuit, botBestSuit, say, myPhraseChoices, PHRASES, pick, maybeBotChatter,
     SUITS, TEAM_OF, BOT_PERSONAS
   };
 }

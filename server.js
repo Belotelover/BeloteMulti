@@ -101,23 +101,10 @@ function createRoom(){
     };
     setTimeout(tick, Math.max(20, Math.min(300, ms/SPEED)));
   };
-  E.FX.trickChatter = (winner)=>{ /* les bots parlent via say() qui passe par FX.render/later */
-    try{
-      // reutilise la logique solo : bavardage occasionnel des sieges bots
-      const S=E.S; if(!S||!S.bots) return;
-      if(Math.random()>0.2) return;
-      const botSeats=[0,1,2,3].filter(i=>!room.seats[i] && i!==winner && S.bots[i]);
-      if(!botSeats.length) return;
-      const p=botSeats[Math.floor(Math.random()*botSeats.length)];
-      const style=S.bots[p].style;
-      const won = E.TEAM_OF[p]===E.TEAM_OF[winner];
-      const PH=E.PHRASES;
-      const bag = won ? (style==='Agressif'?PH.cheer.concat(PH.praise):PH.praise)
-                      : (style==='Agressif'?PH.tease.concat(PH.regret)
-                        : style==='Prudente'?PH.regret:PH.regret.concat(PH.cheer));
-      E.say(p, E.pick(bag));
-    }catch(e){}
-  };
+  // Le bavardage est gere par le moteur (une seule implementation pour le solo et le
+  // multijoueur : avant, la logique existait en double et une modification d'un cote
+  // n'avait aucun effet sur l'autre).
+  E.FX.trickChatter = (winner)=>{ try{ E.maybeBotChatter(winner); }catch(e){} };
   rooms.set(room.code, room);
   return room;
 }

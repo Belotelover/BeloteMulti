@@ -59,6 +59,16 @@
   .trick-slot .card{width:68px;height:100px;padding:4px 5px;}
   .trick-slot .card .r1, .trick-slot .card .r2{font-size:16px;}
   .trick-slot .card .suit-big{font-size:29px;}
+  /* Animations du pli. Elles portent sur la CARTE, jamais sur le slot : le slot utilise
+     deja un transform pour se centrer, l'animer casserait le placement.
+     --dx/--dy sont poses en JS selon le siege concerne. */
+  @keyframes carteArrive{ from{ transform:translate(var(--dx),var(--dy)) scale(.85); opacity:.25; } }
+  @keyframes carteRamassee{ to{ transform:translate(var(--dx),var(--dy)) scale(.5); opacity:0; } }
+  .trick-slot .card.posee{ animation:carteArrive .28s cubic-bezier(.2,.8,.3,1); }
+  .trick-slot .card.ramassee{ animation:carteRamassee var(--duree,450ms) cubic-bezier(.45,0,.85,.35) forwards; }
+  @media (prefers-reduced-motion: reduce){
+    .trick-slot .card.posee, .trick-slot .card.ramassee{ animation:none; }
+  }
   .slot-bottom{bottom:0;left:50%;transform:translateX(-50%);}
   .slot-top{top:0;left:50%;transform:translateX(-50%);}
   .slot-left{left:0;top:50%;transform:translateY(-50%);}
@@ -136,6 +146,17 @@
   .suit-pick{display:flex;gap:10px;justify-content:center;margin-top:14px;flex-wrap:wrap;}
   .suit-pick button{width:52px;height:52px;font-size:24px;border-radius:10px;border:2px solid var(--gold-border);background:#fdfcf6;cursor:pointer;}
 
+  /* la retourne merite la meme taille que les cartes en main : c'est l'information la plus
+     regardee de la phase d'encheres (cet agrandissement avait ete perdu lors d'un retour
+     a une version anterieure) */
+  .turned-lg{width:66px;height:96px;}
+  .turned-lg .r1, .turned-lg .r2{font-size:16px;}
+  .turned-lg .suit-big{font-size:27px;}
+  @keyframes revelation{ from{ transform:rotateY(90deg) scale(.92); opacity:.35; } }
+  .turned-lg.revele{ animation:revelation .42s ease-out; }
+  /* Belote / Rebelote : moment fort, il passait inapercu */
+  @keyframes eclatBelote{ 0%,100%{ box-shadow:none; } 50%{ box-shadow:0 0 14px 4px rgba(244,217,154,.9); } }
+  .banner.belote{ animation:eclatBelote 1.1s ease-in-out 2; }
   .card-lg{width:78px;height:114px;margin:10px auto;}
   .card-lg .r1, .card-lg .r2{font-size:18px;}
   .card-lg .suit-big{font-size:34px;}
@@ -198,6 +219,11 @@
   .bm-right{top:calc(50% - 80px);right:6px;}
   .bm-bottom{bottom:98px;left:calc(50% + 38px);}
 
+  /* le joueur dont c'est le tour respire doucement : a 4 sur mobile, on cherche parfois
+     qui doit jouer. Utile autant qu'immersif. */
+  @keyframes tourDeJeu{ 50%{ box-shadow:0 0 0 3px rgba(244,217,154,.75); background:rgba(0,0,0,.6); } }
+  .bot-label.a-lui{ animation:tourDeJeu 1.4s ease-in-out infinite; }
+  @media (prefers-reduced-motion: reduce){ .bot-label.a-lui{ animation:none; box-shadow:0 0 0 2px #f4d99a; } }
   .bot-label{position:absolute;font-size:10.5px;color:#f4d99a;text-shadow:0 1px 2px #000;z-index:6;background:rgba(0,0,0,.35);padding:2px 6px;border-radius:6px;white-space:nowrap;}
   .label-top{top:108px;left:50%;transform:translateX(-50%);}
   .label-left{top:calc(50% - 100px);left:4px;}
@@ -302,10 +328,46 @@ let handIds=[];        // ids de ma main au rendu precedent
 let freshIds=[];       // cartes en cours d'affichage sur la rangee du dessus
 let freshTimer=null;
 let WATCHING=false;    // je regarde la partie sans y jouer (aucun siege)
+// Animations du pli, entierement cote client : on observe les changements d'etat recus.
+// Le moteur n'est pas touche — si une animation echoue, le jeu continue normalement.
+let ramassage=null;        // {cartes, gagnant, cle} pendant le ramassage
+let ramassageTimer=null;
+let cartesPosees=new Set();// ids deja animes a l'arrivee (une animation par carte, pas par rendu)
+let dernierPli=null;       // longueur du pli au rendu precedent
+let retourneRevelee=null;  // retourne deja revelee (l'animation ne joue qu'une fois)
+let scoreAffiche=null, scoreRaf=null; // points en cours de defilement dans le bandeau
+const DUREE_RAMASSAGE=450;
 let notice=null, noticeTimer=null; // petit mot passager dans le bandeau
 let flipPending=false; // demande d'animer le rangement au prochain rendu
 let freshEntered=false;// l'animation d'arrivee a deja ete jouee (evite qu'elle rejoue a chaque rendu)
 const FRESH_PAUSE_MS = 2500;
+
+// Le pli est passe de 4 cartes a 0 : il vient d'etre ramasse. On rejoue les 4 cartes
+// (fournies par lastTrick) en les faisant glisser vers le gagnant.
+function detectRamassage(nv){
+  const avant = dernierPli;
+  const maintenant = (nv.trick||[]).length;
+  if(avant===4 && maintenant===0 && nv.lastTrick && nv.lastTrick.length===4
+     && nv.lastTrickWinner!==null && nv.lastTrickWinner!==undefined){
+    const cle = 'pli'+nv.trickNum+'-'+nv.lastTrickWinner;
+    if(!ramassage || ramassage.cle!==cle){
+      ramassage = { cartes: nv.lastTrick.slice(), gagnant: nv.lastTrickWinner, cle };
+      if(ramassageTimer) clearTimeout(ramassageTimer);
+      ramassageTimer = setTimeout(()=>{ ramassage=null; ramassageTimer=null; render(); }, DUREE_RAMASSAGE+60);
+    }
+  }
+  if(maintenant===0 && avant!==0) cartesPosees.clear(); // nouveau pli : on repart propre
+  dernierPli = maintenant;
+}
+
+// Vers ou glissent les cartes / d'ou elles arrivent, selon la position a l'ecran du siege
+function decalageVers(seat){
+  const d = screenSlot(seat);
+  if(d==='bottom') return {dx:'0px',  dy:'130px'};
+  if(d==='top')    return {dx:'0px',  dy:'-130px'};
+  if(d==='left')   return {dx:'-130px',dy:'0px'};
+  return {dx:'130px', dy:'0px'};
+}
 
 function detectFreshCards(nv){
   const ids=(nv.hand||[]).map(c=>c.id);
@@ -402,7 +464,7 @@ function connect(then){
       sessionStorage.setItem('belote', JSON.stringify({code:CODE, token:TOKEN, name:myName}));
       render(); return; }
     if(m.type==='lobby'){ PLAYERS=m.players; STARTED=m.started; render(); return; }
-    if(m.type==='view'){ if(m.watching) WATCHING=true; detectFreshCards(m.view); V=m.view; PLAYERS=m.players; STARTED=true; render(); return; }
+    if(m.type==='view'){ if(m.watching) WATCHING=true; detectRamassage(m.view); detectFreshCards(m.view); V=m.view; PLAYERS=m.players; STARTED=true; render(); return; }
   };
   ws.onclose=()=>{
     connecting=false;
@@ -685,9 +747,27 @@ function render(){
   const hud=document.createElement('div'); hud.className='hud';
   const row=document.createElement('div'); row.className='hud-scores';
   const nous=V.scores[myTeam], eux=V.scores[1-myTeam];
-  row.innerHTML='<span class="team nous">Nous <small>'+Math.min(nous,1000)+'/1000</small></span>'
-    +'<span class="team eux">Eux <small>'+Math.min(eux,1000)+'/1000</small></span>';
+  // Les points defilent jusqu'a leur valeur au lieu de sauter : on n'anime QUE ces deux
+  // nombres (pas de redessin general, qui relancerait les autres animations).
+  if(!scoreAffiche) scoreAffiche=[nous,eux];
+  const depart=[scoreAffiche[0], scoreAffiche[1]];
+  row.innerHTML='<span class="team nous">Nous <small id="sc-nous">'+Math.min(depart[0],1000)+'/1000</small></span>'
+    +'<span class="team eux">Eux <small id="sc-eux">'+Math.min(depart[1],1000)+'/1000</small></span>';
   hud.appendChild(row);
+  if(depart[0]!==nous || depart[1]!==eux){
+    if(scoreRaf) cancelAnimationFrame(scoreRaf);
+    const t0=performance.now(), duree=800;
+    const pas=(t)=>{
+      const k=Math.min(1,(t-t0)/duree);
+      const a=Math.round(depart[0]+(nous-depart[0])*k), b=Math.round(depart[1]+(eux-depart[1])*k);
+      const en=document.getElementById('sc-nous'), ee=document.getElementById('sc-eux');
+      if(en) en.textContent=Math.min(a,1000)+'/1000';
+      if(ee) ee.textContent=Math.min(b,1000)+'/1000';
+      scoreAffiche=[a,b];
+      if(k<1) scoreRaf=requestAnimationFrame(pas); else { scoreAffiche=[nous,eux]; scoreRaf=null; }
+    };
+    scoreRaf=requestAnimationFrame(pas);
+  }
 
   // annonce passagere (arrivee d'un joueur ou d'un spectateur), au meme endroit que le reste
   if(notice){
@@ -734,6 +814,15 @@ function render(){
     const pinfo = PLAYERS && PLAYERS.find(x=>x.seat===s);
     const icon = (pinfo && pinfo.human) ? '👤 ' : '🤖 ';
     lb.textContent = icon + nameOf(s);
+    // a qui le tour ? en jeu : leader + nombre de cartes deja posees ; aux encheres : biddingTurn.
+    // La rotation du moteur va de p vers (p+3)%4.
+    let doitAgir = -1;
+    if(V.screen==='play' && V.leader!==null && V.leader!==undefined){
+      doitAgir = ((V.leader + 3*V.trick.length) % 4 + 4) % 4;
+    } else if(V.screen==='bidding'){
+      doitAgir = V.biddingTurn;
+    }
+    if(s===doitAgir && !ramassage) lb.classList.add('a-lui');
     root.appendChild(lb);
   }
 
@@ -777,23 +866,55 @@ function render(){
   }
   if(V.banner){
     const b=document.createElement('div'); b.className='banner'; b.textContent=V.banner;
+    if(/belote/i.test(V.banner)) b.classList.add('belote');
     root.appendChild(b);
   }
 
   // ---------- pli central ----------
   if(V.screen==='play'){
     const tw=document.createElement('div'); tw.className='trick-area';
+
+    // Ramassage : on rejoue les 4 cartes du pli precedent, glissant vers le gagnant.
+    if(ramassage){
+      const vers = decalageVers(ramassage.gagnant);
+      for(const pl of ramassage.cartes){
+        const slot=document.createElement('div'); slot.className='trick-slot slot-'+screenSlot(pl.player);
+        const el=cardEl(pl.card);
+        el.classList.add('ramassee');
+        el.style.setProperty('--dx', vers.dx);
+        el.style.setProperty('--dy', vers.dy);
+        el.style.setProperty('--duree', DUREE_RAMASSAGE+'ms');
+        slot.appendChild(el);
+        tw.appendChild(slot);
+      }
+    }
+
     for(const pl of V.trick){
       const slot=document.createElement('div'); slot.className='trick-slot slot-'+screenSlot(pl.player);
-      slot.appendChild(cardEl(pl.card));
+      const el=cardEl(pl.card);
+      // la carte glisse depuis le siege de celui qui vient de la poser — une seule fois
+      if(!cartesPosees.has(pl.card.id)){
+        cartesPosees.add(pl.card.id);
+        const depuis = decalageVers(pl.player);
+        el.style.setProperty('--dx', depuis.dx);
+        el.style.setProperty('--dy', depuis.dy);
+        el.classList.add('posee');
+      }
+      slot.appendChild(el);
       tw.appendChild(slot);
     }
     root.appendChild(tw);
   }
+  // hors encheres, on oublie la retourne : ainsi l'animation se rejoue a chaque nouvelle
+  // manche (les identifiants de cartes se repetent d'une donne a l'autre, ils ne peuvent
+  // pas servir de repere fiable)
+  if(V.screen!=='bidding') retourneRevelee=null;
   if(V.screen==='bidding' && V.turnedCard){
     const c=document.createElement('div'); c.className='center-area';
     const back=document.createElement('div'); back.className='talon-back';
-    c.appendChild(back); c.appendChild(cardEl(V.turnedCard));
+    const cr=cardEl(V.turnedCard, 'turned-lg');
+    if(!retourneRevelee){ retourneRevelee=true; cr.classList.add('revele'); }
+    c.appendChild(back); c.appendChild(cr);
     root.appendChild(c);
   }
 

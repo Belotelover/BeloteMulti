@@ -215,6 +215,25 @@ function botBestSuit(p){
   return best;
 }
 
+// ---------- TEMPERAMENT EN COURS DE JEU ----------
+// La personnalite ne doit PAS rendre un bot moins intelligent : les fondamentaux (deduction
+// des mains, sortie d'atout quand on est preneur, gestion des maitres, signaux) restent
+// identiques pour tous. Seules les decisions ou un vrai joueur "sent" differemment sont
+// modulees : prendre un risque, ou assurer.
+const TEMPERAMENT = {
+  // margeSansHonneur : combien de points d'evaluation EN PLUS il faut pour prendre sans
+  // Valet ni 9 d'atout. Prendre sans honneur est objectivement risque : on l'exige donc de
+  // TOUT LE MONDE, mais l'exigence est graduee. Ainsi on ameliore le jeu de chacun sans
+  // priver personne — l'agressif garde son seuil bas et prend toujours plus souvent.
+  'Agressif':  { investitSansGarantie:0.40, coupeRisquee:0.45, passeALAs:0.22, margeSansHonneur:2 },
+  'Équilibré': { investitSansGarantie:0.18, coupeRisquee:0.22, passeALAs:0.10, margeSansHonneur:4 },
+  'Prudente':  { investitSansGarantie:0.05, coupeRisquee:0.08, passeALAs:0.03, margeSansHonneur:7 }
+};
+function tempoDe(p){
+  const b = S.bots && S.bots[p];
+  return TEMPERAMENT[b && b.style] || TEMPERAMENT['Équilibré'];
+}
+
 function botWantsTrump(p, suit){
   const val = evaluateSuit(S.hands[p], suit);
   const info = S.bots[p];
@@ -224,7 +243,16 @@ function botWantsTrump(p, suit){
   const situational = scoreGap>=0 ? Math.min(scoreGap/70, 4) : Math.max(scoreGap/60, -4);
   const roundPenalty = S.biddingRound===2 ? 3 : 0; // un peu plus exigeant au 2e tour (moins d'infos)
   const adjThreshold = Math.max(14, info.threshold + situational + roundPenalty);
-  return val >= adjThreshold;
+  if(val < adjThreshold) return false;
+  // Un joueur prudent ne prend pas sur un simple total de points : il lui faut un honneur
+  // d'atout (Valet ou 9). Sans cela, meme une main "correcte" se retourne trop souvent.
+  const marge = tempoDe(p).margeSansHonneur;
+  if(marge>0){
+    const atouts = S.hands[p].filter(c=>c.suit===suit);
+    const aUnHonneur = atouts.some(c=>c.rank==='V'||c.rank==='9');
+    if(!aUnHonneur && val < adjThreshold+marge) return false;
+  }
+  return true;
 }
 
 function nextBidder(){
@@ -882,6 +910,27 @@ function botLeadCard(p, moves){
     return mine.sort((a,b)=>cardPts(a)-cardPts(b))[0]; // on y revient petit, il prendra la main
   }
 
+  // Passe a l'as : sans signal formel, un joueur offensif tente quand meme une couleur ou
+  // son partenaire peut encore tenir l'As (deduction publique : l'As n'est pas tombe et le
+  // partenaire n'est pas connu chicane). Il entame petit et parie que le partenaire prendra.
+  // Un prudent ne le fait quasiment jamais et attend un vrai signal.
+  const enDefense = S.taker!==null && TEAM_OF[p]!==TEAM_OF[S.taker];
+  if(enDefense && Math.random() < tempoDe(p).passeALAs){
+    const unseen = unseenBy(p);
+    const candidates = SUITS.filter(s=>{
+      if(s===S.trumpSuit) return false;
+      if(!moves.some(c=>c.suit===s)) return false;
+      if(moves.some(c=>c.suit===s && c.rank==='A')) return false;      // on a l'As : inutile
+      if(!unseen.some(u=>u.suit===s && u.rank==='A')) return false;    // l'As est deja tombe
+      return couldHoldSuit(p, mate, s, unseen) && !likelyVoid(p, mate, s, unseen);
+    });
+    if(candidates.length){
+      const s = pick(candidates);
+      const mine = moves.filter(c=>c.suit===s).sort((a,b)=>cardPts(a)-cardPts(b));
+      return mine[0]; // on y va petit : si le partenaire tient, il ramasse
+    }
+  }
+
   // Dernier recours, mais raisonné : on entame petit (on ne donne pas de points), sans ouvrir
   // l'atout (surtout en défense, ce serait un cadeau au preneur), et de préférence dans notre
   // couleur la plus courte afin de s'y créer une coupe au plus vite.
@@ -933,7 +982,24 @@ function botChooseCard(p, moves, leadSuit){
       const unseen = unseenBy(p);
       const safe = winning.find(c=>!cardCouldBeBeaten(p, c, leadSuit, unseen));
       if(safe) return safe;
+      // Aucune carte ne garantit le pli. Un joueur offensif tente quand meme sur un gros pli
+      // (il jouera la plus forte pour maximiser ses chances) ; un prudent ne gaspille pas.
+      const adversairesRestants = [1,2,3].map(k=>playerAfter(p,k))
+        .slice(0, 3-S.trick.length)
+        .filter(op=>TEAM_OF[op]!==TEAM_OF[p]).length;
+      if(trickPts>=12 && adversairesRestants<=1 && Math.random() < tempoDe(p).investitSansGarantie){
+        return winning[winning.length-1];
+      }
       return winning[0];
+    }
+    // Pli pauvre : on ne gaspille pas. Un offensif accepte toutefois de couper un peu plus
+    // haut quand un adversaire menace de surcouper, pour ne pas offrir le pli ; un prudent
+    // garde ses atouts pour plus tard.
+    const jeCoupe = leadSuit && leadSuit!==S.trumpSuit && winning[0].suit===S.trumpSuit;
+    if(jeCoupe && winning.length>1 && opponentTrumpThreat(p, leadSuit)
+       && winning[1].rank!=='V' && winning[1].rank!=='9'   // on ne brule jamais un honneur ici
+       && Math.random() < tempoDe(p).coupeRisquee){
+      return winning[1]; // un cran au-dessus : on securise sans se ruiner
     }
     return winning[0]; // pli pauvre : inutile de gaspiller une grosse carte
   }

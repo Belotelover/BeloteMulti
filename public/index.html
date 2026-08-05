@@ -804,7 +804,22 @@ function render(){
   // carte selon le bareme qui la concerne.
   const PLAIN_RANKS=['7','8','9','V','D','R','10','A'], TRUMP_RANKS=['7','8','D','R','10','A','9','V'];
   const rankIdx = c => (c.suit===V.trumpSuit ? TRUMP_RANKS : PLAIN_RANKS).indexOf(c.rank);
-  const sorted=V.hand.slice().sort((a,b)=>SUITS.indexOf(a.suit)-SUITS.indexOf(b.suit) || rankIdx(a)-rankIdx(b));
+
+  // On ALTERNE les couleurs a l'ecran : jamais coeur a cote de carreau, ni pique a cote de
+  // trefle. Deux enseignes de teinte proche cote a cote se confondent au premier coup d'oeil.
+  // L'ordre est calcule d'apres les couleurs REELLEMENT en main (une couleur absente ne doit
+  // pas casser l'alternance des autres).
+  const ordreCouleurs = (function(){
+    const presentes = new Set(V.hand.map(c=>c.suit));
+    const rouges = ['\u2665','\u2666'].filter(s=>presentes.has(s)); // coeur, carreau
+    const noires = ['\u2660','\u2663'].filter(s=>presentes.has(s)); // pique, trefle
+    const [longue, courte] = rouges.length>=noires.length ? [rouges,noires] : [noires,rouges];
+    const ordre=[];
+    for(let i=0;i<longue.length;i++){ ordre.push(longue[i]); if(courte[i]) ordre.push(courte[i]); }
+    return ordre;
+  })();
+  const suitIdx = c => ordreCouleurs.indexOf(c.suit);
+  const sorted=V.hand.slice().sort((a,b)=>suitIdx(a)-suitIdx(b) || rankIdx(a)-rankIdx(b));
   const freshSet = new Set(freshIds);
   for(const c of sorted){
     if(freshSet.has(c.id)) continue; // encore sur la rangee du dessus

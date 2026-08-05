@@ -24,7 +24,8 @@ const PUBLIC = path.join(__dirname, 'public');
 const MIME = {
   '.html':'text/html; charset=utf-8', '.js':'text/javascript; charset=utf-8',
   '.css':'text/css; charset=utf-8', '.png':'image/png', '.svg':'image/svg+xml',
-  '.ico':'image/x-icon', '.json':'application/json; charset=utf-8'
+  '.ico':'image/x-icon', '.json':'application/json; charset=utf-8',
+  '.webmanifest':'application/manifest+json; charset=utf-8'
 };
 const httpServer = http.createServer((req,res)=>{
   let p = req.url.split('?')[0];

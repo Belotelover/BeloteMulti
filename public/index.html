@@ -6,6 +6,10 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#0e4425">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="/icons/icone-192.png">
+<link rel="apple-touch-icon" href="/icons/icone-180.png">
+<meta name="apple-mobile-web-app-title" content="Belote du Gang">
 <title>Belote du Gang</title>
 <style>
   :root{
@@ -63,7 +67,15 @@
      deja un transform pour se centrer, l'animer casserait le placement.
      --dx/--dy sont poses en JS selon le siege concerne. */
   @keyframes carteArrive{ from{ transform:translate(var(--dx),var(--dy)) scale(.85); opacity:.25; } }
-  @keyframes carteRamassee{ to{ transform:translate(var(--dx),var(--dy)) scale(.5); opacity:0; } }
+  /* Ramassage en deux temps : les 4 cartes se REGROUPENT d'abord en tas au centre
+     (--cx/--cy ramenent chaque carte depuis sa place vers le milieu, --rot donne le
+     desordre d'un vrai tas), puis le tas file vers le gagnant (--wx/--wy). */
+  @keyframes carteRamassee{
+    0%{   transform:translate(0,0) scale(1) rotate(0deg); }
+    38%{  transform:translate(var(--cx),var(--cy)) scale(.94) rotate(var(--rot)); opacity:1; }
+    100%{ transform:translate(calc(var(--cx) + var(--wx)), calc(var(--cy) + var(--wy)))
+                    scale(.48) rotate(var(--rot)); opacity:0; }
+  }
   .trick-slot .card.posee{ animation:carteArrive .28s cubic-bezier(.2,.8,.3,1); }
   .trick-slot .card.ramassee{ animation:carteRamassee var(--duree,450ms) cubic-bezier(.45,0,.85,.35) forwards; }
   @media (prefers-reduced-motion: reduce){
@@ -336,7 +348,7 @@ let cartesPosees=new Set();// ids deja animes a l'arrivee (une animation par car
 let dernierPli=null;       // longueur du pli au rendu precedent
 let retourneRevelee=null;  // retourne deja revelee (l'animation ne joue qu'une fois)
 let scoreAffiche=null, scoreRaf=null; // points en cours de defilement dans le bandeau
-const DUREE_RAMASSAGE=450;
+const DUREE_RAMASSAGE=560;
 let notice=null, noticeTimer=null; // petit mot passager dans le bandeau
 let flipPending=false; // demande d'animer le rangement au prochain rendu
 let freshEntered=false;// l'animation d'arrivee a deja ete jouee (evite qu'elle rejoue a chaque rendu)
@@ -358,6 +370,16 @@ function detectRamassage(nv){
   }
   if(maintenant===0 && avant!==0) cartesPosees.clear(); // nouveau pli : on repart propre
   dernierPli = maintenant;
+}
+
+// Ecart de chaque emplacement par rapport au CENTRE du pli : sert a regrouper les cartes
+// en tas (on applique l'oppose de cet ecart) avant de les envoyer vers le gagnant.
+function ecartAuCentre(seat){
+  const d = screenSlot(seat);
+  if(d==='bottom') return {x:0,   y:62};
+  if(d==='top')    return {x:0,   y:-62};
+  if(d==='left')   return {x:-74, y:0};
+  return {x:74, y:0};
 }
 
 // Vers ou glissent les cartes / d'ou elles arrivent, selon la position a l'ecran du siege
@@ -877,16 +899,21 @@ function render(){
     // Ramassage : on rejoue les 4 cartes du pli precedent, glissant vers le gagnant.
     if(ramassage){
       const vers = decalageVers(ramassage.gagnant);
-      for(const pl of ramassage.cartes){
+      ramassage.cartes.forEach((pl, i)=>{
         const slot=document.createElement('div'); slot.className='trick-slot slot-'+screenSlot(pl.player);
         const el=cardEl(pl.card);
+        const centre = ecartAuCentre(pl.player);
         el.classList.add('ramassee');
-        el.style.setProperty('--dx', vers.dx);
-        el.style.setProperty('--dy', vers.dy);
+        el.style.setProperty('--cx', (-centre.x)+'px');   // regroupement vers le milieu
+        el.style.setProperty('--cy', (-centre.y)+'px');
+        el.style.setProperty('--wx', vers.dx);            // puis depart vers le gagnant
+        el.style.setProperty('--wy', vers.dy);
+        el.style.setProperty('--rot', (i*7-10)+'deg');    // leger desordre : un vrai tas n'est pas aligne
         el.style.setProperty('--duree', DUREE_RAMASSAGE+'ms');
+        el.style.zIndex = String(10+i);
         slot.appendChild(el);
         tw.appendChild(slot);
-      }
+      });
     }
 
     for(const pl of V.trick){

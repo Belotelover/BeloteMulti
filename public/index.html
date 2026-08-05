@@ -45,7 +45,11 @@
   .top-hand{position:absolute;top:130px;left:0;right:0;display:flex;justify-content:center;}
   .left-hand{position:absolute;top:50%;left:2px;transform:translateY(-50%);display:flex;flex-direction:column;}
   .right-hand{position:absolute;top:50%;right:2px;transform:translateY(-50%);display:flex;flex-direction:column;}
-  .bottom-hand{position:absolute;bottom:6px;left:0;right:0;display:flex;justify-content:center;flex-wrap:wrap;gap:0;z-index:4;}
+  /* Main en eventail, TOUJOURS sur une seule ligne : chaque carte est placee
+     individuellement (rotation + hauteur), l'ecartement reste identique quel que soit
+     le nombre de cartes restantes — la main se resserre, elle ne s'etale pas. */
+  .bottom-hand{position:absolute;bottom:26px;left:0;right:0;height:104px;z-index:4;}
+  .bottom-hand .card{position:absolute;transform-origin:50% 135%;}
 
   .mini-card{width:34px;height:50px;border:1.5px solid #fff;border-radius:5px;margin:0 -4px;box-shadow:0 2px 4px rgba(0,0,0,.5);
     background-color:var(--back);
@@ -76,7 +80,7 @@
     100%{ transform:translate(calc(var(--cx) + var(--wx)), calc(var(--cy) + var(--wy)))
                     scale(.48) rotate(var(--rot)); opacity:0; }
   }
-  .trick-slot .card.posee{ animation:carteArrive .28s cubic-bezier(.2,.8,.3,1); }
+  .trick-slot .card.posee{ animation:carteArrive .19s cubic-bezier(.2,.85,.3,1); }
   .trick-slot .card.ramassee{ animation:carteRamassee var(--duree,450ms) cubic-bezier(.45,0,.85,.35) forwards; }
   @media (prefers-reduced-motion: reduce){
     .trick-slot .card.posee, .trick-slot .card.ramassee{ animation:none; }
@@ -89,13 +93,28 @@
   .card{width:52px;height:76px;background:#fdfcf6;border-radius:6px;border:1px solid #333;box-shadow:0 2px 5px rgba(0,0,0,.5);display:flex;flex-direction:column;justify-content:space-between;padding:3px 4px;font-weight:700;position:relative;user-select:none;}
   .card .r1{font-size:13px;line-height:1;}
   .card .suit-big{font-size:22px;align-self:center;}
+  /* Vraies figures : un 8 porte huit symboles, comme sur un vrai jeu. Les enseignes sont
+     placees aux positions classiques d'un jeu francais, celles du bas retournees. */
+  .card{--pip:11px; --fig:26px;}
+  .pips{position:absolute;left:15%;right:15%;top:13%;bottom:13%;pointer-events:none;}
+  .pip{position:absolute;font-size:var(--pip);line-height:1;transform:translate(-50%,-50%);}
+  .pip.bas{transform:translate(-50%,-50%) rotate(180deg);}
+  .figure{position:absolute;left:14%;right:14%;top:15%;bottom:15%;
+    border:1.5px solid currentColor;border-radius:5px;display:flex;
+    align-items:center;justify-content:center;font-weight:800;
+    font-size:var(--fig);opacity:.92;pointer-events:none;}
+  .figure small{font-size:.55em;margin-left:.08em;}
+  .trick-slot .card{--pip:12px; --fig:29px;}
+  .bottom-hand .card{--pip:12px; --fig:28px;}
+  .turned-lg{--pip:12px; --fig:28px;}
+  .card-lg{--pip:14px; --fig:34px;}
   .card .r2{font-size:13px;line-height:1;align-self:flex-end;transform:rotate(180deg);}
   .suit-h{color:#c1272d;}
   .suit-d{color:#1a63c9;}
   .suit-c{color:#1c7a3e;}
   .suit-s{color:#111;}
 
-  .bottom-hand .card{width:66px;height:96px;margin:0 -9px;transition:transform .15s;cursor:pointer;}
+  .bottom-hand .card{width:66px;height:96px;transition:transform .15s, box-shadow .15s;cursor:pointer;}
   /* Rangee d'accueil des cartes recues apres la prise : elles restent en evidence le temps
      de les voir, puis viennent se ranger dans la main (animation FLIP dans render). */
   /* liste des parties en cours sur l'ecran d'accueil */
@@ -119,18 +138,35 @@
   .watch-badge{position:absolute;top:112px;left:50%;transform:translateX(-50%);z-index:9;
     background:rgba(0,0,0,.55);border:1px solid rgba(244,217,154,.45);color:#f4d99a;
     padding:5px 12px;border-radius:14px;font-size:11.5px;font-weight:700;white-space:nowrap;}
+  /* Distribution : les cartes partent du talon, au centre, vers chaque joueur.
+     Cette couche vit HORS de #root, sinon chaque redessin l'effacerait en plein vol. */
+  #couche-donne{position:fixed;inset:0;pointer-events:none;z-index:30;}
+  #couche-donne .talon-centre{position:absolute;width:52px;height:76px;border-radius:6px;
+    border:2px solid #fff;box-shadow:0 3px 8px rgba(0,0,0,.55);
+    background-color:var(--back);
+    background-image:
+      repeating-linear-gradient(45deg, rgba(255,255,255,.5) 0 1.5px, transparent 1.5px 7px),
+      repeating-linear-gradient(-45deg, rgba(255,255,255,.5) 0 1.5px, transparent 1.5px 7px);
+    transform:translate(-50%,-50%);transition:opacity .25s;}
+  #couche-donne .vol{position:absolute;width:44px;height:64px;border-radius:5px;border:2px solid #fff;
+    background-color:var(--back);
+    background-image:
+      repeating-linear-gradient(45deg, rgba(255,255,255,.5) 0 1.5px, transparent 1.5px 6px),
+      repeating-linear-gradient(-45deg, rgba(255,255,255,.5) 0 1.5px, transparent 1.5px 6px);
+    transform:translate(-50%,-50%) scale(.8);
+    transition:transform 368ms cubic-bezier(.25,.8,.35,1), opacity 180ms;}
   .new-row{position:absolute;bottom:118px;left:0;right:0;display:flex;justify-content:center;
     gap:0;z-index:5;pointer-events:none;}
   .new-row .card{width:66px;height:96px;margin:0 -9px;}
   .card.fresh{box-shadow:0 0 0 2px #f4d99a, 0 4px 14px rgba(0,0,0,.55);}
-  .card.arriving{animation:cardArrive .28s cubic-bezier(.2,.8,.3,1) backwards;}
+  .card.arriving{animation:cardArrive .20s cubic-bezier(.2,.85,.3,1) backwards;}
   @keyframes cardArrive{ from{ transform:translateY(-40px) scale(.9); opacity:0; } }
   @media (prefers-reduced-motion: reduce){
     .card.arriving{animation:none;}
   }
   .bottom-hand .card .r1, .bottom-hand .card .r2{font-size:16px;}
   .bottom-hand .card .suit-big{font-size:27px;}
-  .bottom-hand .card:hover{transform:translateY(-10px);}
+  .bottom-hand .card:hover{box-shadow:0 8px 18px rgba(0,0,0,.7);z-index:99;}
   .bottom-hand .card.disabled{filter:brightness(.6) saturate(.4);cursor:not-allowed;}
   .bottom-hand .card.disabled:hover{transform:none;}
 
@@ -147,7 +183,13 @@
 
   .overlay{position:absolute;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:20;}
   .bid-panel-wrap{position:absolute;top:190px;left:50%;transform:translateX(-50%);z-index:20;width:90%;max-width:340px;}
-  .bid-bar{position:absolute;top:56px;left:0;right:0;z-index:20;background:rgba(18,13,7,.92);border-bottom:2px solid var(--gold-border);box-shadow:0 4px 10px rgba(0,0,0,.5);padding:8px 10px;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px;}
+  /* Encheres : place au CENTRE BAS, juste au-dessus de la main et sous la retourne.
+     Auparavant collee tout en haut, loin du regard et du pouce : on lisait la retourne au
+     milieu, puis il fallait remonter a l'autre bout de l'ecran pour repondre. */
+  .bid-bar{position:absolute;bottom:118px;left:8px;right:8px;z-index:20;
+    background:rgba(18,13,7,.94);border:2px solid var(--gold-border);border-radius:14px;
+    box-shadow:0 6px 16px rgba(0,0,0,.55);padding:9px 10px;display:flex;flex-wrap:wrap;
+    align-items:center;justify-content:center;gap:8px;}
   .bid-bar .bid-text{color:#f4d99a;font-size:12.5px;font-weight:700;text-shadow:0 1px 2px #000;flex-basis:100%;text-align:center;}
   .gold-btn.small{padding:7px 14px;font-size:13px;}
   .deal-choice-bar{position:absolute;top:56px;left:0;right:0;z-index:20;background:rgba(18,13,7,.92);border-bottom:2px solid var(--gold-border);box-shadow:0 4px 10px rgba(0,0,0,.5);padding:10px;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:10px;}
@@ -165,7 +207,7 @@
   .turned-lg .r1, .turned-lg .r2{font-size:16px;}
   .turned-lg .suit-big{font-size:27px;}
   @keyframes revelation{ from{ transform:rotateY(90deg) scale(.92); opacity:.35; } }
-  .turned-lg.revele{ animation:revelation .42s ease-out; }
+  .turned-lg.revele{ animation:revelation .30s ease-out; }
   /* Belote / Rebelote : moment fort, il passait inapercu */
   @keyframes eclatBelote{ 0%,100%{ box-shadow:none; } 50%{ box-shadow:0 0 14px 4px rgba(244,217,154,.9); } }
   .banner.belote{ animation:eclatBelote 1.1s ease-in-out 2; }
@@ -347,15 +389,93 @@ let ramassageTimer=null;
 let cartesPosees=new Set();// ids deja animes a l'arrivee (une animation par carte, pas par rendu)
 let dernierPli=null;       // longueur du pli au rendu precedent
 let retourneRevelee=null;  // retourne deja revelee (l'animation ne joue qu'une fois)
+let donneEnCours=false;      // une distribution est en train d'etre montree
+let donneVisibles=null;      // nombre de cartes de MA main deja retournees pendant la donne
+let donneCle=null;           // identifie la donne en cours (une animation par donne)
 let scoreAffiche=null, scoreRaf=null; // points en cours de defilement dans le bandeau
-const DUREE_RAMASSAGE=560;
+const DUREE_RAMASSAGE=430;
 let notice=null, noticeTimer=null; // petit mot passager dans le bandeau
 let flipPending=false; // demande d'animer le rangement au prochain rendu
 let freshEntered=false;// l'animation d'arrivee a deja ete jouee (evite qu'elle rejoue a chaque rendu)
-const FRESH_PAUSE_MS = 2500;
+const FRESH_PAUSE_MS = 2000;
 
 // Le pli est passe de 4 cartes a 0 : il vient d'etre ramasse. On rejoue les 4 cartes
 // (fournies par lastTrick) en les faisant glisser vers le gagnant.
+// ---------- DISTRIBUTION VISIBLE ----------
+// Detectee cote client : ma main passe a 5 cartes toutes neuves (aucune en commun avec
+// la donne precedente). Purement visuel : le jeu n'attend pas la fin de l'animation.
+function detectDonne(nv){
+  const ids=(nv.hand||[]).map(c=>c.id);
+  if(ids.length!==5) return;
+  const communes = ids.filter(id=>handIds.indexOf(id)>=0).length;
+  if(communes>0) return;                       // ce n'est pas une nouvelle donne
+  const cle = ids.slice().sort().join('|');
+  if(donneCle===cle) return;                   // deja montree
+  donneCle=cle;
+  lancerDonne(nv);
+}
+
+const DONNE = {vol:368, entreCartes:54, avantRetourne:240, parCarte:72, entreJoueurs:112};
+
+function lancerDonne(nv){
+  const ancienne=document.getElementById('couche-donne');
+  if(ancienne) ancienne.remove();
+  const couche=document.createElement('div'); couche.id='couche-donne';
+  document.body.appendChild(couche);
+
+  const L=window.innerWidth, H=window.innerHeight;
+  const cx=L/2, cy=H*0.47;
+  const talon=document.createElement('div'); talon.className='talon-centre';
+  talon.style.left=cx+'px'; talon.style.top=cy+'px';
+  couche.appendChild(talon);
+
+  const cible = (seat)=>{
+    const d=screenSlot(seat);
+    if(d==='bottom') return {x:L/2,      y:H*0.86};
+    if(d==='top')    return {x:L/2,      y:H*0.14};
+    if(d==='left')   return {x:L*0.08,   y:H*0.50};
+    return {x:L*0.92, y:H*0.50};
+  };
+
+  const envoyer=(pos)=>{
+    const v=document.createElement('div'); v.className='vol';
+    v.style.left=cx+'px'; v.style.top=cy+'px';
+    couche.appendChild(v);
+    requestAnimationFrame(()=>{
+      v.style.transform='translate(calc(-50% + '+(pos.x-cx)+'px), calc(-50% + '+(pos.y-cy)+'px)) '
+                      + 'scale(.62) rotate('+(Math.random()*24-12)+'deg)';
+    });
+    setTimeout(()=>{ v.style.opacity='0'; }, DONNE.vol*0.72);
+    setTimeout(()=>v.remove(), DONNE.vol+240);
+  };
+
+  // ordre de service : le donneur sert d'abord a sa droite (rotation du moteur : (p+3)%4)
+  const donneur = (nv.dealer===null||nv.dealer===undefined) ? 0 : nv.dealer;
+  const suivant = (p)=>(p+3)%4;
+  const ordre=[]; let p=donneur;
+  for(let i=0;i<4;i++){ p=suivant(p); ordre.push(p); }
+  const premier = nv.dealFirst===2 ? 2 : 3;
+  const paquets=[premier, 5-premier];
+
+  donneEnCours=true; donneVisibles=0; render();
+  let t=0;
+  const plus=(ms)=>{ t+=ms; return t; };
+  for(const taille of paquets){
+    for(const siege of ordre){
+      for(let k=0;k<taille;k++) setTimeout(()=>envoyer(cible(siege)), plus(DONNE.entreCartes));
+      if(siege===ME){
+        plus(DONNE.avantRetourne);
+        for(let k=0;k<taille;k++) setTimeout(()=>{ donneVisibles++; render(); }, plus(DONNE.parCarte));
+      }
+      plus(DONNE.entreJoueurs);
+    }
+  }
+  setTimeout(()=>{ talon.style.opacity='0'; }, t);
+  setTimeout(()=>{
+    couche.remove(); donneEnCours=false; donneVisibles=null; render();
+  }, t+320);
+}
+
 function detectRamassage(nv){
   const avant = dernierPli;
   const maintenant = (nv.trick||[]).length;
@@ -486,7 +606,7 @@ function connect(then){
       sessionStorage.setItem('belote', JSON.stringify({code:CODE, token:TOKEN, name:myName}));
       render(); return; }
     if(m.type==='lobby'){ PLAYERS=m.players; STARTED=m.started; render(); return; }
-    if(m.type==='view'){ if(m.watching) WATCHING=true; detectRamassage(m.view); detectFreshCards(m.view); V=m.view; PLAYERS=m.players; STARTED=true; render(); return; }
+    if(m.type==='view'){ if(m.watching) WATCHING=true; detectRamassage(m.view); detectDonne(m.view); detectFreshCards(m.view); V=m.view; PLAYERS=m.players; STARTED=true; render(); return; }
   };
   ws.onclose=()=>{
     connecting=false;
@@ -532,11 +652,67 @@ function send(o){
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 const SUIT_COLORS = {'\u2665':'#c1272d', '\u2666':'#e07b1f', '\u2663':'#1a1a1a', '\u2660':'#1c3f66'};
+// Emplacements des enseignes, en % de la zone centrale : dispositions d'un jeu francais.
+// Colonnes a 22 / 50 / 78 %, les enseignes de la moitie basse sont retournees.
+const DISPOSITIONS = {
+  'A' : [[50,50]],
+  '7' : [[22,10],[78,10],[50,30],[22,50],[78,50],[22,90],[78,90]],
+  '8' : [[22,10],[78,10],[50,30],[22,50],[78,50],[50,70],[22,90],[78,90]],
+  '9' : [[22,10],[78,10],[22,37],[78,37],[50,50],[22,63],[78,63],[22,90],[78,90]],
+  '10': [[22,10],[78,10],[50,24],[22,37],[78,37],[22,63],[78,63],[50,76],[22,90],[78,90]]
+};
+const NOMS_FIGURES = {'V':'V','D':'D','R':'R'};
+
+// Place les cartes de la main en eventail, sur UNE seule ligne.
+// L'ecartement est FIXE (calcule pour une main pleine de 8 cartes) : quand il ne reste
+// que 3 cartes, elles restent cote a cote au lieu de s'etaler sur toute la largeur.
+const EVENTAIL = {angle:5, arc:11, ecart:-3, large:66, haut:96, mainPleine:8};
+function disposerEnEventail(conteneur){
+  const cartes=[...conteneur.children];
+  const n=cartes.length;
+  if(!n) return;
+  const E=EVENTAIL;
+
+  // budget de largeur : on retranche le debordement du a l'inclinaison (les cartes des
+  // extremites pivotent vers l'exterieur autour d'un point situe sous la main)
+  const milieuPlein=(E.mainPleine-1)/2;
+  const angleMax=Math.abs(milieuPlein*E.angle)*Math.PI/180;
+  const rayon=1.35*E.haut - E.haut/2;
+  const debord=rayon*Math.sin(angleMax) + (E.haut*Math.sin(angleMax)+E.large*Math.cos(angleMax)-E.large)/2;
+  const dispo=Math.min(window.innerWidth-16, 520) - 2*Math.max(0,debord);
+
+  // ecartement calcule UNE fois pour la main pleine, puis conserve
+  const pas=Math.min(E.large+E.ecart, (dispo-E.large)/(E.mainPleine-1));
+  const largeurTotale=(n-1)*pas+E.large;
+  const depart=-largeurTotale/2+E.large/2;
+  const milieu=(n-1)/2;
+
+  cartes.forEach((el,i)=>{
+    const k=i-milieu;
+    const monte = milieu>0 ? E.arc*(1-Math.pow(k/milieu,2)) : E.arc;
+    el.style.left='calc(50% + '+(depart+i*pas)+'px)';
+    el.style.marginLeft=(-E.large/2)+'px';
+    el.style.bottom=monte+'px';
+    el.style.transform='rotate('+(k*E.angle)+'deg)';
+    el.style.zIndex=String(10+i);
+  });
+}
+
 function cardEl(c, cls, onClick){
   const d=document.createElement('div');
   d.className='card'+(cls?' '+cls:'');
   d.style.color = SUIT_COLORS[c.suit];
-  d.innerHTML='<div class="r1">'+c.rank+c.suit+'</div><div class="suit-big">'+c.suit+'</div><div class="r2">'+c.rank+c.suit+'</div>';
+  let centre;
+  if(NOMS_FIGURES[c.rank]){
+    // Valet, Dame, Roi : cartouche avec la lettre et l'enseigne
+    centre='<div class="figure">'+NOMS_FIGURES[c.rank]+'<small>'+c.suit+'</small></div>';
+  }else{
+    const pos = DISPOSITIONS[c.rank] || [[50,50]];
+    centre='<div class="pips">'+pos.map(([x,y])=>
+      '<span class="pip'+(y>55?' bas':'')+'" style="left:'+x+'%;top:'+y+'%">'+c.suit+'</span>'
+    ).join('')+'</div>';
+  }
+  d.innerHTML='<div class="r1">'+c.rank+c.suit+'</div>'+centre+'<div class="r2">'+c.rank+c.suit+'</div>';
   if(onClick) d.onclick=onClick;
   return d;
 }
@@ -778,7 +954,7 @@ function render(){
   hud.appendChild(row);
   if(depart[0]!==nous || depart[1]!==eux){
     if(scoreRaf) cancelAnimationFrame(scoreRaf);
-    const t0=performance.now(), duree=800;
+    const t0=performance.now(), duree=560;
     const pas=(t)=>{
       const k=Math.min(1,(t-t0)/duree);
       const a=Math.round(depart[0]+(nous-depart[0])*k), b=Math.round(depart[1]+(eux-depart[1])*k);
@@ -969,13 +1145,18 @@ function render(){
   const suitIdx = c => ordreCouleurs.indexOf(c.suit);
   const sorted=V.hand.slice().sort((a,b)=>suitIdx(a)-suitIdx(b) || rankIdx(a)-rankIdx(b));
   const freshSet = new Set(freshIds);
+  // pendant la distribution, la main se remplit au rythme des cartes recues
+  const limite = donneEnCours ? (donneVisibles||0) : sorted.length;
+  let posees=0;
   for(const c of sorted){
     if(freshSet.has(c.id)) continue; // encore sur la rangee du dessus
+    if(posees++ >= limite) continue; // pas encore arrivee
     const legal=!V.yourTurnToPlay || (V.legal && V.legal.includes(c.id));
     const el=cardEl(c, legal?'':'disabled', ()=>{ if(V.yourTurnToPlay) send({type:'play', id:c.id}); });
     el.dataset.cid=c.id;
     hand.appendChild(el);
   }
+  disposerEnEventail(hand);
   root.appendChild(hand);
 
   // cartes qui viennent d'arriver : elles patientent au-dessus de la main, en evidence
@@ -1125,7 +1306,7 @@ function render(){
     if(moved.length){
       requestAnimationFrame(()=>{
         moved.forEach((el,i)=>{
-          el.style.transition='transform 560ms cubic-bezier(.2,.85,.25,1) '+(i*22)+'ms';
+          el.style.transition='transform 400ms cubic-bezier(.2,.88,.25,1) '+(i*14)+'ms';
           el.style.transform='translate(0,0)';
         });
       });

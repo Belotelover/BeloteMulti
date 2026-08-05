@@ -79,7 +79,8 @@ function newGame(){
     humans: new Set([0]), // sieges tenus par des humains (solo : toi ; multi : un par joueur connecte)
     bots: shuffledBotSeats(), // les 3 bots changent de place à chaque nouvelle partie
     bubbles: {0:null,1:null,2:null,3:null},
-    memoReponses: {},      // qui a deja repondu quoi (gag une fois par partie, temps de repos)
+    memoReponses: {},      // qui a deja repondu quoi (temps de repos entre deux prises de parole)
+    franckDejaFait: false, // le gag Franck Leboeuf n'embraye qu'une fois par partie
     reponseEnCours: false, // un seul bot repond a la fois
     showChat: false,
     lastRoundOrder: null, // ordre du jeu ramassé à la fin de la manche précédente (null = tout premier coup, on mélange vraiment)
@@ -516,16 +517,61 @@ function reponsePour(style, cat, memeEquipe){
   if(style==='Prudente') return pick(['Bonne partie','Chapeau']);
   return pick(['Presque !','Allez là !']);
 }
+// A qui s'adresse une remarque ? On le deduit UNIQUEMENT de faits visibles par toute la
+// table (qui a remporte le dernier pli, combien il valait, qui l'a offert). Jamais des
+// cartes en main : une bulle ne doit donner aucune information exploitable.
+function cibleDuPropos(auteur, cat){
+  const pli = S.lastTrick, gagnant = S.lastTrickWinner;
+  const partenaire = playerAfter(auteur, 2);
+  if(cat==='praise'){
+    // on felicite celui qui vient de remporter le pli ; si c'est nous, on felicite son partenaire
+    if(gagnant!==null && gagnant!==undefined && gagnant!==auteur) return gagnant;
+    return partenaire;
+  }
+  if(cat==='tease'){
+    // on chambre celui qui vient d'offrir un GROS pli au camp d'en face
+    if(!pli || !pli.length || gagnant===null || gagnant===undefined) return null;
+    const points = pli.reduce((s,x)=>s+cardPts(x.card),0);
+    if(points < 25) return null;                       // pli banal : personne n'est vise
+    const perdants = pli.filter(x=>TEAM_OF[x.player]!==TEAM_OF[gagnant]);
+    if(!perdants.length) return null;
+    perdants.sort((a,b)=>cardPts(b.card)-cardPts(a.card));
+    return perdants[0].player;                          // celui qui a mis le plus de points dedans
+  }
+  if(cat==='regret' || cat==='cheer') return partenaire; // on plaint / encourage son camp
+  return null;
+}
+
 function peutEtreUneReponse(auteur, texte){
   if(!S || !S.bots) return;
-  if(S.screen!=='play' && S.screen!=='roundEnd') return;  // pas pendant les encheres
-  if(S.reponseEnCours) return;                            // un seul bot repond a la fois
   const cat = categorieDe(texte);
   if(!cat) return;
   if(!S.memoReponses) S.memoReponses={};
   const maintenant = Date.now();
 
-  const volontaires = [0,1,2,3].filter(p=>{
+  // Le gag Franck Leboeuf : la PREMIERE fois de la partie, TOUS les bots repondent, en
+  // decalage, comme une tablee qui embraye. Ensuite ils passent a autre chose. Il n'est
+  // soumis a aucune restriction de moment : c'est une blague, pas un commentaire de jeu.
+  if(cat==='franck'){
+    if(S.franckDejaFait) return;
+    S.franckDejaFait = true;
+    const bots=[0,1,2,3].filter(p=>p!==auteur && !isHumanSeat(p) && S.bots[p] && S.bots[p].style!=='Humain');
+    bots.forEach((p,i)=>{
+      const memo = S.memoReponses[p] || (S.memoReponses[p]={});
+      memo.dernier = maintenant;
+      FX.later(()=>{ say(p, PHRASES.humanOnly[0], true); }, 700 + i*(550+Math.floor(Math.random()*450)));
+    });
+    return;
+  }
+
+  if(S.screen!=='play' && S.screen!=='roundEnd') return;  // le reste : pas pendant les encheres
+  if(S.reponseEnCours) return;                            // un seul bot repond a la fois
+
+  const vise = cibleDuPropos(auteur, cat);
+  const candidats = (vise!==null && vise!==undefined && vise!==auteur && !isHumanSeat(vise))
+    ? [vise]              // la remarque s'adresse a quelqu'un de precis : c'est LUI qui repond
+    : [0,1,2,3];
+  const volontaires = candidats.filter(p=>{
     if(p===auteur) return false;
     if(isHumanSeat(p)) return false;                      // seuls les bots repondent
     const bot = S.bots[p];

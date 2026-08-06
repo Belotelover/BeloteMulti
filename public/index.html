@@ -44,13 +44,13 @@
   .hand-row{display:flex;justify-content:center;}
   /* mains adverses : elles aussi en eventail, sinon la table parait incoherente
      (les cartes sont placees une par une, comme la main du bas) */
-  .top-hand{position:absolute;top:146px;left:50%;width:0;height:66px;}
-  .left-hand{position:absolute;top:50%;left:32px;width:0;height:0;}
-  .right-hand{position:absolute;top:50%;right:32px;width:0;height:0;}
+  .top-hand{position:absolute;top:146px;left:50%;width:0;height:66px;z-index:3;isolation:isolate;}
+  .left-hand{position:absolute;top:50%;left:32px;width:0;height:0;z-index:3;isolation:isolate;}
+  .right-hand{position:absolute;top:50%;right:32px;width:0;height:0;z-index:3;isolation:isolate;}
   /* Main en eventail, TOUJOURS sur une seule ligne : chaque carte est placee
      individuellement (rotation + hauteur), l'ecartement reste identique quel que soit
      le nombre de cartes restantes — la main se resserre, elle ne s'etale pas. */
-  .bottom-hand{position:absolute;bottom:26px;left:0;right:0;height:104px;z-index:4;}
+  .bottom-hand{position:absolute;bottom:26px;left:0;right:0;height:104px;z-index:4;isolation:isolate;}
   .bottom-hand .card{position:absolute;transform-origin:50% 135%;}
 
   .mini-card{position:absolute;width:34px;height:50px;border:1.5px solid #fff;border-radius:5px;box-shadow:0 2px 4px rgba(0,0,0,.5);
@@ -157,7 +157,7 @@
   .bottom-hand .card.disabled{filter:brightness(.6) saturate(.4);cursor:not-allowed;}
   .bottom-hand .card.disabled:hover{transform:none;}
 
-  .talon-back{width:52px;height:76px;border-radius:6px;border:2px solid #fff;box-shadow:0 2px 5px rgba(0,0,0,.5);
+  .talon-back{width:66px;height:96px;border-radius:6px;border:2px solid #fff;box-shadow:0 2px 5px rgba(0,0,0,.5);
     background-color:var(--back);
     background-image:
       repeating-linear-gradient(45deg, rgba(255,255,255,.55) 0 1.5px, transparent 1.5px 7px),
@@ -399,7 +399,9 @@ function detectDonne(nv){
   const cle = ids.slice().sort().join('|');
   if(donneCle===cle) return;                   // deja montree
   donneCle=cle;
-  lancerDonne(nv);
+  // on laisse l'ecran se dessiner : le talon (a cote de la retourne) doit exister avant
+  // qu'on lise sa position, sinon la distribution partirait d'un point arbitraire
+  setTimeout(()=>lancerDonne(nv), 40);
 }
 
 const DONNE = {vol:368, entreCartes:54, avantRetourne:240, parCarte:72, entreJoueurs:112};
@@ -698,7 +700,7 @@ function disposerEnEventail(conteneur){
 // Meme principe que notre main, adapte aux trois autres joueurs : ecartement FIXE
 // (calcule pour 8 cartes) et petit arc. En haut l'eventail est horizontal ; sur les
 // cotes il est vertical, la courbure tournee vers l'exterieur de la table.
-const EVENTAIL_ADV = {angle:5, angleCote:3, arc:7, arcCote:5, pas:26, large:34, haut:50, mainPleine:8};
+const EVENTAIL_ADV = {angle:5, angleCote:4, arc:7, arcCote:9, pas:26, pasCote:31, large:34, haut:50, mainPleine:8};
 function disposerEventailAdverse(conteneur, pos, n){
   if(!n) return;
   const E=EVENTAIL_ADV;
@@ -714,7 +716,7 @@ function disposerEventailAdverse(conteneur, pos, n){
     }else{
       const sens = pos==='left' ? 1 : -1;
       const creuxCote = milieu>0 ? E.arcCote*(1-Math.pow(k/milieu,2)) : E.arcCote;
-      el.style.top=(k*E.pas - E.haut/2)+'px';
+      el.style.top=(k*E.pasCote - E.haut/2)+'px';
       el.style.left=(sens*creuxCote - E.large/2)+'px';
       el.style.transform='rotate('+(-sens*k*E.angleCote)+'deg)';
       el.style.transformOrigin=(sens>0?'-35%':'135%')+' 50%';

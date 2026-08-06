@@ -208,12 +208,11 @@
   .home-screen p{color:#dfeee2;text-align:center;font-size:13px;max-width:320px;}
 
   .dealer-badge{position:absolute;width:26px;height:26px;border-radius:50%;background:#c1272d;color:#fff;font-weight:800;font-size:14px;display:flex;align-items:center;justify-content:center;border:2px solid #fff;box-shadow:0 2px 5px rgba(0,0,0,.5);z-index:7;}
-  .taker-badge{position:absolute;min-width:30px;height:30px;padding:0 6px;border-radius:15px;background:linear-gradient(180deg,var(--gold1),var(--gold2));color:#111;font-weight:800;font-size:16px;display:flex;align-items:center;justify-content:center;gap:2px;border:2px solid var(--gold-border);box-shadow:0 2px 6px rgba(0,0,0,.55);z-index:8;}
-  .taker-bottom{bottom:96px;left:calc(50% - 46px);}
-  .taker-right{top:calc(50% - 100px);right:2px;}
-  .taker-top{top:172px;left:calc(50% - 46px);}
-  .taker-left{top:calc(50% - 100px);left:2px;}
-  .trump-watermark{position:absolute;font-size:88px;line-height:1;opacity:.16;pointer-events:none;z-index:2;font-weight:800;}
+  /* L'atout est signale par ce seul filigrane : agrandi et plus contraste, il remplace
+     le jeton qui se posait sur les cartes et en cachait une. */
+  .trump-watermark{position:absolute;font-size:132px;line-height:1;opacity:.30;
+    pointer-events:none;z-index:2;font-weight:800;
+    text-shadow:0 2px 10px rgba(0,0,0,.35);}
   .wm-bottom{bottom:110px;left:50%;transform:translate(-50%,0);}
   .icon-btn{position:absolute;z-index:9;width:36px;height:36px;border-radius:50%;
     background:linear-gradient(180deg,var(--gold1),var(--gold2));border:2px solid var(--gold-border);
@@ -267,8 +266,10 @@
   @media (prefers-reduced-motion: reduce){ .bot-label.a-lui{ animation:none; box-shadow:0 0 0 2px #f4d99a; } }
   .bot-label{position:absolute;font-size:10.5px;color:#f4d99a;text-shadow:0 1px 2px #000;z-index:6;background:rgba(0,0,0,.35);padding:2px 6px;border-radius:6px;white-space:nowrap;}
   .label-top{top:108px;left:50%;transform:translateX(-50%);}
-  .label-left{top:calc(50% - 148px);left:4px;}
-  .label-right{top:calc(50% - 148px);right:4px;}
+  /* hors plein ecran, la fenetre est plus courte : un simple pourcentage faisait remonter
+     les pseudos derriere les boutons ronds. On impose donc un plancher. */
+  .label-left{top:max(206px, calc(50% - 148px));left:4px;}
+  .label-right{top:max(206px, calc(50% - 148px));right:4px;}
   .dealer-bottom{bottom:60px;left:calc(50% - 90px);}
   .dealer-right{top:50%;right:36px;transform:translateY(-50%);}
   .dealer-top{top:188px;left:calc(50% - 90px);}
@@ -1064,8 +1065,8 @@ function render(){
     const wm=document.createElement('div'); wm.className='trump-watermark wm-'+pos;
     wm.style.color=(V.trumpSuit==='\u2665'||V.trumpSuit==='\u2666')?'#c1272d':'#111';
     wm.textContent=V.trumpSuit; root.appendChild(wm);
-    const tb=document.createElement('div'); tb.className='taker-badge taker-'+pos;
-    tb.style.color=wm.style.color; tb.textContent=V.trumpSuit; root.appendChild(tb);
+    // plus de jeton par-dessus les cartes : le filigrane, agrandi et plus contraste,
+    // indique l'atout a lui seul. Sa position rappelle qui a pris.
   }
 
   // badge donneur

@@ -44,9 +44,9 @@
   .hand-row{display:flex;justify-content:center;}
   /* mains adverses : elles aussi en eventail, sinon la table parait incoherente
      (les cartes sont placees une par une, comme la main du bas) */
-  .top-hand{position:absolute;top:150px;left:50%;width:0;height:66px;z-index:3;isolation:isolate;}
-  .left-hand{position:absolute;top:50%;left:38px;width:0;height:0;z-index:3;isolation:isolate;}
-  .right-hand{position:absolute;top:50%;right:38px;width:0;height:0;z-index:3;isolation:isolate;}
+  .top-hand{position:absolute;top:196px;left:50%;width:0;height:0;z-index:3;isolation:isolate;}
+  .left-hand{position:absolute;top:50%;left:52px;width:0;height:0;z-index:3;isolation:isolate;}
+  .right-hand{position:absolute;top:50%;right:52px;width:0;height:0;z-index:3;isolation:isolate;}
   /* Main en eventail, TOUJOURS sur une seule ligne : chaque carte est placee
      individuellement (rotation + hauteur), l'ecartement reste identique quel que soit
      le nombre de cartes restantes — la main se resserre, elle ne s'etale pas. */
@@ -708,27 +708,22 @@ function disposerEventailAdverse(conteneur, pos, n){
   if(!n) return;
   const E=EVENTAIL_ADV;
   const milieu=(n-1)/2;
+  // On dispose la main EXACTEMENT comme la notre (eventail ouvert vers le haut, centre
+  // sur le point d'origine), puis on fait pivoter l'ensemble selon la place du joueur.
+  // Ainsi chaque bot semble tenir ses cartes face a lui, comme un vrai joueur.
   [...conteneur.children].forEach((el,i)=>{
     const k=i-milieu;
-    const creux = milieu>0 ? E.arc*(1-Math.pow(k/milieu,2)) : E.arc;
-    if(pos==='top'){
-      el.style.left=(k*E.pas - E.large/2)+'px';
-      el.style.top=(-creux)+'px';
-      el.style.transform='rotate('+(k*E.angle)+'deg)';
-      el.style.transformOrigin='50% -35%';           // arc ouvert vers le bas (vers la table)
-    }else{
-      // Joueurs des cotes : vus de notre place, leurs cartes sont COUCHEES (ils les
-      // tiennent face a eux). On part donc d'un quart de tour, auquel s'ajoute
-      // l'inclinaison de l'eventail.
-      const sens = pos==='left' ? 1 : -1;
-      const creuxCote = milieu>0 ? E.arcCote*(1-Math.pow(k/milieu,2)) : E.arcCote;
-      el.style.top=(k*E.pasCote - E.haut/2)+'px';
-      el.style.left=(sens*creuxCote - E.large/2)+'px';
-      el.style.transform='rotate('+(sens*90 - sens*k*E.angleCote)+'deg)';
-      el.style.transformOrigin='50% 50%';
-    }
+    const monte = milieu>0 ? E.arc*(1-Math.pow(k/milieu,2)) : E.arc;
+    el.style.left=(k*E.pas - E.large/2)+'px';
+    el.style.top=(-monte - E.haut/2)+'px';
+    el.style.transform='rotate('+(k*E.angle)+'deg)';
+    el.style.transformOrigin='50% 135%';   // pivot sous la main, comme la notre
     el.style.zIndex=String(10+i);
   });
+  // un quart de tour pour les joueurs des cotes, un demi-tour pour celui d'en face
+  const quart = pos==='top' ? 180 : (pos==='left' ? 90 : -90);
+  conteneur.style.transform='rotate('+quart+'deg)';
+  conteneur.style.transformOrigin='50% 50%';
 }
 
 function cardEl(c, cls, onClick){
@@ -1046,24 +1041,29 @@ function render(){
     }
     if(s===doitAgir && !ramassage) lb.classList.add('a-lui');
 
-    if(pos==='left' || pos==='right'){
-      // Le pseudo est place DANS l'eventail : ses coordonnees sont relatives a la main
-      // elle-meme, sans dependre de la hauteur de la fenetre ni de la zone de jeu — c'est
-      // ce calcul indirect qui le faisait atterrir sur les cartes.
-      const E=EVENTAIL_ADV, milieuN=(n-1)/2;
-      const hautCartes = -(milieuN*E.pasCote) - 30;   // bord superieur (cartes couchees)
-      const basCartes  =  (milieuN*E.pasCote) + 30;
-      lb.style.position='absolute'; lb.style.zIndex='50';
-      lb.style.top=Math.round(hautCartes-24)+'px';
-      if(pos==='left') lb.style.left='-28px'; else lb.style.right='-28px';
-      wrap.appendChild(lb);
-      // s'il remonte dans la zone des boutons ronds (fenetre courte), il passe sous
-      // l'eventail. On compare aux boutons REELLEMENT affiches plutot qu'a une valeur fixe.
-      const bas = Math.max(0, ...[...root.querySelectorAll('.icon-btn')]
-        .map(e=>e.getBoundingClientRect().bottom));
-      if(lb.getBoundingClientRect().top < bas + 8) lb.style.top=Math.round(basCartes+6)+'px';
-    }else{
-      root.appendChild(lb);
+    // Le pseudo est place a partir des bords REELS de l'eventail (mesures apres rotation),
+    // et hors du conteneur : sinon il pivoterait avec les cartes.
+    lb.style.position='absolute'; lb.style.zIndex='12';
+    lb.style.left=''; lb.style.right=''; lb.style.top='';
+    root.appendChild(lb);
+    const rects=[...wrap.querySelectorAll('.mini-card')].map(e=>e.getBoundingClientRect());
+    if(rects.length){
+      const rr=root.getBoundingClientRect();
+      const hautFan=Math.min(...rects.map(r=>r.top));
+      const basFan=Math.max(...rects.map(r=>r.bottom));
+      const gaucheFan=Math.min(...rects.map(r=>r.left));
+      const droiteFan=Math.max(...rects.map(r=>r.right));
+      const lr=lb.getBoundingClientRect();
+      // horizontalement : cale sur le bord exterieur pour les cotes, centre pour celui d'en face
+      if(pos==='left')       lb.style.left=Math.round(gaucheFan-rr.left)+'px';
+      else if(pos==='right') lb.style.left=Math.round(droiteFan-rr.left-lr.width)+'px';
+      else                   lb.style.left=Math.round((gaucheFan+droiteFan)/2-rr.left-lr.width/2)+'px';
+      // verticalement : au-dessus de l'eventail, sauf s'il n'y a pas la place (fenetre courte)
+      // Le joueur d'en face : pseudo AU-DESSUS de sa main (il est centre, aucun bouton la).
+      // Les joueurs des cotes : pseudo SOUS leur main, car le haut des cotes est occupe
+      // par les boutons ronds. Regle simple et sans collision possible.
+      lb.style.top = (pos==='top' ? Math.round(hautFan-lr.height-6-rr.top)
+                                  : Math.round(basFan+6-rr.top))+'px';
     }
   }
 

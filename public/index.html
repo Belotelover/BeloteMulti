@@ -44,16 +44,16 @@
   .hand-row{display:flex;justify-content:center;}
   /* mains adverses : elles aussi en eventail, sinon la table parait incoherente
      (les cartes sont placees une par une, comme la main du bas) */
-  .top-hand{position:absolute;top:196px;left:50%;width:0;height:0;z-index:3;isolation:isolate;}
-  .left-hand{position:absolute;top:50%;left:52px;width:0;height:0;z-index:3;isolation:isolate;}
-  .right-hand{position:absolute;top:50%;right:52px;width:0;height:0;z-index:3;isolation:isolate;}
+  .top-hand{position:absolute;top:172px;left:50%;width:0;height:0;z-index:3;isolation:isolate;}
+  .left-hand{position:absolute;top:50%;left:46px;width:0;height:0;z-index:3;isolation:isolate;}
+  .right-hand{position:absolute;top:50%;right:46px;width:0;height:0;z-index:3;isolation:isolate;}
   /* Main en eventail, TOUJOURS sur une seule ligne : chaque carte est placee
      individuellement (rotation + hauteur), l'ecartement reste identique quel que soit
      le nombre de cartes restantes — la main se resserre, elle ne s'etale pas. */
   .bottom-hand{position:absolute;bottom:26px;left:0;right:0;height:104px;z-index:4;isolation:isolate;}
   .bottom-hand .card{position:absolute;transform-origin:50% 135%;}
 
-  .mini-card{position:absolute;width:44px;height:64px;border:1.5px solid #fff;border-radius:6px;box-shadow:0 2px 5px rgba(0,0,0,.55);
+  .mini-card{position:absolute;width:58px;height:84px;border:1.5px solid #fff;border-radius:6px;box-shadow:0 2px 5px rgba(0,0,0,.55);
     background-color:var(--back);
     background-image:
       repeating-linear-gradient(45deg, rgba(255,255,255,.55) 0 1px, transparent 1px 5px),
@@ -703,7 +703,7 @@ function disposerEnEventail(conteneur){
 // Meme principe que notre main, adapte aux trois autres joueurs : ecartement FIXE
 // (calcule pour 8 cartes) et petit arc. En haut l'eventail est horizontal ; sur les
 // cotes il est vertical, la courbure tournee vers l'exterieur de la table.
-const EVENTAIL_ADV = {angle:6, angleCote:6, arc:10, arcCote:16, pas:30, pasCote:30, large:44, haut:64, mainPleine:8};
+const EVENTAIL_ADV = {angle:7, arc:13, pas:17, large:58, haut:84, mainPleine:8};
 function disposerEventailAdverse(conteneur, pos, n){
   if(!n) return;
   const E=EVENTAIL_ADV;
@@ -1055,9 +1055,13 @@ function render(){
       const droiteFan=Math.max(...rects.map(r=>r.right));
       const lr=lb.getBoundingClientRect();
       // horizontalement : cale sur le bord exterieur pour les cotes, centre pour celui d'en face
-      if(pos==='left')       lb.style.left=Math.round(gaucheFan-rr.left)+'px';
-      else if(pos==='right') lb.style.left=Math.round(droiteFan-rr.left-lr.width)+'px';
-      else                   lb.style.left=Math.round((gaucheFan+droiteFan)/2-rr.left-lr.width/2)+'px';
+      let x;
+      if(pos==='left')       x=gaucheFan-rr.left;
+      else if(pos==='right') x=droiteFan-rr.left-lr.width;
+      else                   x=(gaucheFan+droiteFan)/2-rr.left-lr.width/2;
+      // les mains debordent volontairement un peu de l'ecran : le pseudo, lui, doit rester lisible
+      x=Math.max(4, Math.min(x, rr.width-lr.width-4));
+      lb.style.left=Math.round(x)+'px';
       // verticalement : au-dessus de l'eventail, sauf s'il n'y a pas la place (fenetre courte)
       // Le joueur d'en face : pseudo AU-DESSUS de sa main (il est centre, aucun bouton la).
       // Les joueurs des cotes : pseudo SOUS leur main, car le haut des cotes est occupe

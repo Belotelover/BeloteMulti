@@ -830,8 +830,16 @@ function honourRedundancy(p, c, unseen){
 // Le contexte change tout : si le partenaire encaisse en sécurité, donner des points est bon ;
 // si c'est l'adversaire qui tient le pli, chaque point donné est une perte.
 function pickDiscard(p, pool, leadSuit, partnerWinning, isDefender){
-  const safeForPartner = partnerWinning && !opponentTrumpThreat(p, leadSuit);
   const unseen = unseenBy(p);
+  const info = currentWinnerInfo();
+  // "Pisser" (lacher ses points sur le pli du partenaire) ne vaut QUE si son pli est
+  // reellement acquis. Deux dangers, pas un seul : qu'un adversaire coupe, mais aussi
+  // qu'il monte tout simplement a la couleur. Sans cette seconde verification, un bot
+  // lachait 10 points sur un 7 du partenaire qui n'avait aucune chance de tenir.
+  const pliAcquis = partnerWinning
+    && !opponentTrumpThreat(p, leadSuit)
+    && !(info && cardCouldBeBeaten(p, info.card, leadSuit, unseen));
+  const safeForPartner = pliAcquis;
   let best=null, bestScore=-Infinity;
   for(const c of pool){
     const s = discardScore(p, c, safeForPartner, isDefender, unseen);
@@ -1236,7 +1244,7 @@ if (typeof module !== 'undefined' && module.exports) {
     // pendant son tour (le bot doit prendre le relais). Ces deux fonctions s'auto-protegent
     // (elles ne font rien si ce n'est pas le bon ecran ou si le siege est humain).
     playTurn, advanceBidding,
-    evaluateSuit, botBestSuit, say, myPhraseChoices, PHRASES, pick, maybeBotChatter,
+    evaluateSuit, botBestSuit, botChooseCard, cardCouldBeBeaten, unseenBy, say, myPhraseChoices, PHRASES, pick, maybeBotChatter,
     SUITS, TEAM_OF, BOT_PERSONAS
   };
 }

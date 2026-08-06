@@ -42,22 +42,23 @@
   .table{flex:1;position:relative;padding:8px;overflow-y:auto;overflow-x:hidden;}
 
   .hand-row{display:flex;justify-content:center;}
-  .top-hand{position:absolute;top:130px;left:0;right:0;display:flex;justify-content:center;}
-  .left-hand{position:absolute;top:50%;left:2px;transform:translateY(-50%);display:flex;flex-direction:column;}
-  .right-hand{position:absolute;top:50%;right:2px;transform:translateY(-50%);display:flex;flex-direction:column;}
+  /* mains adverses : elles aussi en eventail, sinon la table parait incoherente
+     (les cartes sont placees une par une, comme la main du bas) */
+  .top-hand{position:absolute;top:146px;left:50%;width:0;height:66px;}
+  .left-hand{position:absolute;top:50%;left:32px;width:0;height:0;}
+  .right-hand{position:absolute;top:50%;right:32px;width:0;height:0;}
   /* Main en eventail, TOUJOURS sur une seule ligne : chaque carte est placee
      individuellement (rotation + hauteur), l'ecartement reste identique quel que soit
      le nombre de cartes restantes — la main se resserre, elle ne s'etale pas. */
   .bottom-hand{position:absolute;bottom:26px;left:0;right:0;height:104px;z-index:4;}
   .bottom-hand .card{position:absolute;transform-origin:50% 135%;}
 
-  .mini-card{width:34px;height:50px;border:1.5px solid #fff;border-radius:5px;margin:0 -4px;box-shadow:0 2px 4px rgba(0,0,0,.5);
+  .mini-card{position:absolute;width:34px;height:50px;border:1.5px solid #fff;border-radius:5px;box-shadow:0 2px 4px rgba(0,0,0,.5);
     background-color:var(--back);
     background-image:
       repeating-linear-gradient(45deg, rgba(255,255,255,.55) 0 1px, transparent 1px 5px),
       repeating-linear-gradient(-45deg, rgba(255,255,255,.55) 0 1px, transparent 1px 5px);
     background-clip:padding-box;}
-  .left-hand .mini-card, .right-hand .mini-card{margin:-6px 0;}
 
   .center-area{position:absolute;top:54%;left:50%;transform:translate(-50%,-50%);display:flex;gap:16px;align-items:center;justify-content:center;min-height:110px;}
 
@@ -93,21 +94,6 @@
   .card{width:52px;height:76px;background:#fdfcf6;border-radius:6px;border:1px solid #333;box-shadow:0 2px 5px rgba(0,0,0,.5);display:flex;flex-direction:column;justify-content:space-between;padding:3px 4px;font-weight:700;position:relative;user-select:none;}
   .card .r1{font-size:13px;line-height:1;}
   .card .suit-big{font-size:22px;align-self:center;}
-  /* Vraies figures : un 8 porte huit symboles, comme sur un vrai jeu. Les enseignes sont
-     placees aux positions classiques d'un jeu francais, celles du bas retournees. */
-  .card{--pip:11px; --fig:26px;}
-  .pips{position:absolute;left:15%;right:15%;top:13%;bottom:13%;pointer-events:none;}
-  .pip{position:absolute;font-size:var(--pip);line-height:1;transform:translate(-50%,-50%);}
-  .pip.bas{transform:translate(-50%,-50%) rotate(180deg);}
-  .figure{position:absolute;left:14%;right:14%;top:15%;bottom:15%;
-    border:1.5px solid currentColor;border-radius:5px;display:flex;
-    align-items:center;justify-content:center;font-weight:800;
-    font-size:var(--fig);opacity:.92;pointer-events:none;}
-  .figure small{font-size:.55em;margin-left:.08em;}
-  .trick-slot .card{--pip:12px; --fig:29px;}
-  .bottom-hand .card{--pip:12px; --fig:28px;}
-  .turned-lg{--pip:12px; --fig:28px;}
-  .card-lg{--pip:14px; --fig:34px;}
   .card .r2{font-size:13px;line-height:1;align-self:flex-end;transform:rotate(180deg);}
   .suit-h{color:#c1272d;}
   .suit-d{color:#1a63c9;}
@@ -148,12 +134,13 @@
       repeating-linear-gradient(45deg, rgba(255,255,255,.5) 0 1.5px, transparent 1.5px 7px),
       repeating-linear-gradient(-45deg, rgba(255,255,255,.5) 0 1.5px, transparent 1.5px 7px);
     transform:translate(-50%,-50%);transition:opacity .25s;}
-  #couche-donne .vol{position:absolute;width:44px;height:64px;border-radius:5px;border:2px solid #fff;
+  #couche-donne .vol{position:absolute;width:66px;height:96px;border-radius:6px;border:2px solid #fff;
     background-color:var(--back);
     background-image:
       repeating-linear-gradient(45deg, rgba(255,255,255,.5) 0 1.5px, transparent 1.5px 6px),
       repeating-linear-gradient(-45deg, rgba(255,255,255,.5) 0 1.5px, transparent 1.5px 6px);
     transform:translate(-50%,-50%) scale(.8);
+    box-shadow:0 3px 8px rgba(0,0,0,.5);
     transition:transform 368ms cubic-bezier(.25,.8,.35,1), opacity 180ms;}
   .new-row{position:absolute;bottom:118px;left:0;right:0;display:flex;justify-content:center;
     gap:0;z-index:5;pointer-events:none;}
@@ -186,7 +173,7 @@
   /* Encheres : place au CENTRE BAS, juste au-dessus de la main et sous la retourne.
      Auparavant collee tout en haut, loin du regard et du pouce : on lisait la retourne au
      milieu, puis il fallait remonter a l'autre bout de l'ecran pour repondre. */
-  .bid-bar{position:absolute;bottom:118px;left:8px;right:8px;z-index:20;
+  .bid-bar{position:absolute;bottom:150px;left:8px;right:8px;z-index:20;
     background:rgba(18,13,7,.94);border:2px solid var(--gold-border);border-radius:14px;
     box-shadow:0 6px 16px rgba(0,0,0,.55);padding:9px 10px;display:flex;flex-wrap:wrap;
     align-items:center;justify-content:center;gap:8px;}
@@ -280,8 +267,8 @@
   @media (prefers-reduced-motion: reduce){ .bot-label.a-lui{ animation:none; box-shadow:0 0 0 2px #f4d99a; } }
   .bot-label{position:absolute;font-size:10.5px;color:#f4d99a;text-shadow:0 1px 2px #000;z-index:6;background:rgba(0,0,0,.35);padding:2px 6px;border-radius:6px;white-space:nowrap;}
   .label-top{top:108px;left:50%;transform:translateX(-50%);}
-  .label-left{top:calc(50% - 100px);left:4px;}
-  .label-right{top:calc(50% - 100px);right:4px;}
+  .label-left{top:calc(50% - 148px);left:4px;}
+  .label-right{top:calc(50% - 148px);right:4px;}
   .dealer-bottom{bottom:60px;left:calc(50% - 90px);}
   .dealer-right{top:50%;right:36px;transform:translateY(-50%);}
   .dealer-top{top:188px;left:calc(50% - 90px);}
@@ -424,10 +411,20 @@ function lancerDonne(nv){
   document.body.appendChild(couche);
 
   const L=window.innerWidth, H=window.innerHeight;
-  const cx=L/2, cy=H*0.47;
-  const talon=document.createElement('div'); talon.className='talon-centre';
-  talon.style.left=cx+'px'; talon.style.top=cy+'px';
-  couche.appendChild(talon);
+  // Les cartes partent du VRAI talon, celui pose a cote de la carte retournee. On lit sa
+  // position a l'ecran : ainsi la distribution sort exactement de la pile visible, au lieu
+  // d'un tas fantome qui se superposait a la retourne.
+  const vraiTalon=document.querySelector('.talon-back');
+  let cx, cy, talon=null;
+  if(vraiTalon){
+    const r=vraiTalon.getBoundingClientRect();
+    cx=r.left+r.width/2; cy=r.top+r.height/2;
+  }else{
+    cx=L/2; cy=H*0.47;
+    talon=document.createElement('div'); talon.className='talon-centre';
+    talon.style.left=cx+'px'; talon.style.top=cy+'px';
+    couche.appendChild(talon);
+  }
 
   const cible = (seat)=>{
     const d=screenSlot(seat);
@@ -470,7 +467,7 @@ function lancerDonne(nv){
       plus(DONNE.entreJoueurs);
     }
   }
-  setTimeout(()=>{ talon.style.opacity='0'; }, t);
+  if(talon) setTimeout(()=>{ talon.style.opacity='0'; }, t);
   setTimeout(()=>{
     couche.remove(); donneEnCours=false; donneVisibles=null; render();
   }, t+320);
@@ -698,21 +695,39 @@ function disposerEnEventail(conteneur){
   });
 }
 
+// Meme principe que notre main, adapte aux trois autres joueurs : ecartement FIXE
+// (calcule pour 8 cartes) et petit arc. En haut l'eventail est horizontal ; sur les
+// cotes il est vertical, la courbure tournee vers l'exterieur de la table.
+const EVENTAIL_ADV = {angle:5, angleCote:3, arc:7, arcCote:5, pas:26, large:34, haut:50, mainPleine:8};
+function disposerEventailAdverse(conteneur, pos, n){
+  if(!n) return;
+  const E=EVENTAIL_ADV;
+  const milieu=(n-1)/2;
+  [...conteneur.children].forEach((el,i)=>{
+    const k=i-milieu;
+    const creux = milieu>0 ? E.arc*(1-Math.pow(k/milieu,2)) : E.arc;
+    if(pos==='top'){
+      el.style.left=(k*E.pas - E.large/2)+'px';
+      el.style.top=(-creux)+'px';
+      el.style.transform='rotate('+(k*E.angle)+'deg)';
+      el.style.transformOrigin='50% -35%';           // arc ouvert vers le bas (vers la table)
+    }else{
+      const sens = pos==='left' ? 1 : -1;
+      const creuxCote = milieu>0 ? E.arcCote*(1-Math.pow(k/milieu,2)) : E.arcCote;
+      el.style.top=(k*E.pas - E.haut/2)+'px';
+      el.style.left=(sens*creuxCote - E.large/2)+'px';
+      el.style.transform='rotate('+(-sens*k*E.angleCote)+'deg)';
+      el.style.transformOrigin=(sens>0?'-35%':'135%')+' 50%';
+    }
+    el.style.zIndex=String(10+i);
+  });
+}
+
 function cardEl(c, cls, onClick){
   const d=document.createElement('div');
   d.className='card'+(cls?' '+cls:'');
   d.style.color = SUIT_COLORS[c.suit];
-  let centre;
-  if(NOMS_FIGURES[c.rank]){
-    // Valet, Dame, Roi : cartouche avec la lettre et l'enseigne
-    centre='<div class="figure">'+NOMS_FIGURES[c.rank]+'<small>'+c.suit+'</small></div>';
-  }else{
-    const pos = DISPOSITIONS[c.rank] || [[50,50]];
-    centre='<div class="pips">'+pos.map(([x,y])=>
-      '<span class="pip'+(y>55?' bas':'')+'" style="left:'+x+'%;top:'+y+'%">'+c.suit+'</span>'
-    ).join('')+'</div>';
-  }
-  d.innerHTML='<div class="r1">'+c.rank+c.suit+'</div>'+centre+'<div class="r2">'+c.rank+c.suit+'</div>';
+  d.innerHTML='<div class="r1">'+c.rank+c.suit+'</div><div class="suit-big">'+c.suit+'</div><div class="r2">'+c.rank+c.suit+'</div>';
   if(onClick) d.onclick=onClick;
   return d;
 }
@@ -1006,7 +1021,9 @@ function render(){
     if(s===ME) continue;
     const pos=screenSlot(s);
     const wrap=document.createElement('div'); wrap.className=slots[pos];
-    for(let k=0;k<V.counts[s];k++){ const m=document.createElement('div'); m.className='mini-card'; wrap.appendChild(m); }
+    const n=V.counts[s]||0;
+    for(let k=0;k<n;k++){ const m=document.createElement('div'); m.className='mini-card'; wrap.appendChild(m); }
+    disposerEventailAdverse(wrap, pos, n);
     root.appendChild(wrap);
     const lb=document.createElement('div'); lb.className='bot-label label-'+pos;
     const pinfo = PLAYERS && PLAYERS.find(x=>x.seat===s);

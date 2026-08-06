@@ -44,16 +44,16 @@
   .hand-row{display:flex;justify-content:center;}
   /* mains adverses : elles aussi en eventail, sinon la table parait incoherente
      (les cartes sont placees une par une, comme la main du bas) */
-  .top-hand{position:absolute;top:146px;left:50%;width:0;height:66px;z-index:3;isolation:isolate;}
-  .left-hand{position:absolute;top:50%;left:32px;width:0;height:0;z-index:3;isolation:isolate;}
-  .right-hand{position:absolute;top:50%;right:32px;width:0;height:0;z-index:3;isolation:isolate;}
+  .top-hand{position:absolute;top:150px;left:50%;width:0;height:66px;z-index:3;isolation:isolate;}
+  .left-hand{position:absolute;top:50%;left:38px;width:0;height:0;z-index:3;isolation:isolate;}
+  .right-hand{position:absolute;top:50%;right:38px;width:0;height:0;z-index:3;isolation:isolate;}
   /* Main en eventail, TOUJOURS sur une seule ligne : chaque carte est placee
      individuellement (rotation + hauteur), l'ecartement reste identique quel que soit
      le nombre de cartes restantes — la main se resserre, elle ne s'etale pas. */
   .bottom-hand{position:absolute;bottom:26px;left:0;right:0;height:104px;z-index:4;isolation:isolate;}
   .bottom-hand .card{position:absolute;transform-origin:50% 135%;}
 
-  .mini-card{position:absolute;width:34px;height:50px;border:1.5px solid #fff;border-radius:5px;box-shadow:0 2px 4px rgba(0,0,0,.5);
+  .mini-card{position:absolute;width:44px;height:64px;border:1.5px solid #fff;border-radius:6px;box-shadow:0 2px 5px rgba(0,0,0,.55);
     background-color:var(--back);
     background-image:
       repeating-linear-gradient(45deg, rgba(255,255,255,.55) 0 1px, transparent 1px 5px),
@@ -62,7 +62,7 @@
 
   .center-area{position:absolute;top:54%;left:50%;transform:translate(-50%,-50%);display:flex;gap:16px;align-items:center;justify-content:center;min-height:110px;}
 
-  .trick-area{position:absolute;top:54%;left:50%;transform:translate(-50%,-50%);width:216px;height:224px;}
+  .trick-area{position:absolute;top:54%;left:50%;transform:translate(-50%,-50%);width:216px;height:224px;z-index:5;}
   .trick-slot{position:absolute;width:68px;height:100px;}
   /* les cartes jouées au centre sont plus grandes : c'est l'information la plus regardée */
   .trick-slot .card{width:68px;height:100px;padding:4px 5px;}
@@ -210,10 +210,15 @@
   .dealer-badge{position:absolute;width:26px;height:26px;border-radius:50%;background:#c1272d;color:#fff;font-weight:800;font-size:14px;display:flex;align-items:center;justify-content:center;border:2px solid #fff;box-shadow:0 2px 5px rgba(0,0,0,.5);z-index:7;}
   /* L'atout est signale par ce seul filigrane : agrandi et plus contraste, il remplace
      le jeton qui se posait sur les cartes et en cachait une. */
-  .trump-watermark{position:absolute;font-size:132px;line-height:1;opacity:.30;
-    pointer-events:none;z-index:2;font-weight:800;
+  /* Filigrane : imprime sur le tapis, donc DERRIERE toutes les cartes (z-index 0 ; les
+     cartes et les mains sont a 3 ou plus). Avant il passait devant et mordait sur elles. */
+  /* Une seule position : au centre du tapis, dans la zone degagee sous le pli. C'est la
+     qu'il se voit le mieux, comme une enseigne imprimee sur le feutre. Qui a pris reste
+     indique dans le bandeau du haut. */
+  .trump-watermark{position:absolute;z-index:0;top:70%;left:50%;transform:translate(-50%,-50%);
+    font-size:132px;line-height:1;opacity:.30;
+    pointer-events:none;font-weight:800;
     text-shadow:0 2px 10px rgba(0,0,0,.35);}
-  .wm-bottom{bottom:110px;left:50%;transform:translate(-50%,0);}
   .icon-btn{position:absolute;z-index:9;width:36px;height:36px;border-radius:50%;
     background:linear-gradient(180deg,var(--gold1),var(--gold2));border:2px solid var(--gold-border);
     color:var(--ink);font-size:17px;line-height:1;display:flex;align-items:center;justify-content:center;
@@ -230,9 +235,6 @@
   .cross-top{top:0;left:50%;transform:translateX(-50%);}
   .cross-left{left:0;top:50%;transform:translateY(-50%);}
   .cross-right{right:0;top:50%;transform:translateY(-50%);}
-  .wm-right{top:50%;right:2px;transform:translate(0,-50%);}
-  .wm-top{top:130px;left:50%;transform:translate(-50%,0);}
-  .wm-left{top:50%;left:2px;transform:translate(0,-50%);}
   .bubble{position:absolute;z-index:16;max-width:130px;background:#fdfcf6;color:#1a1a1a;font-size:11.5px;
     font-weight:600;padding:5px 9px;border-radius:11px;box-shadow:0 3px 8px rgba(0,0,0,.5);
     border:1px solid #b9a97e;line-height:1.25;}
@@ -701,7 +703,7 @@ function disposerEnEventail(conteneur){
 // Meme principe que notre main, adapte aux trois autres joueurs : ecartement FIXE
 // (calcule pour 8 cartes) et petit arc. En haut l'eventail est horizontal ; sur les
 // cotes il est vertical, la courbure tournee vers l'exterieur de la table.
-const EVENTAIL_ADV = {angle:5, angleCote:4, arc:7, arcCote:9, pas:26, pasCote:31, large:34, haut:50, mainPleine:8};
+const EVENTAIL_ADV = {angle:6, angleCote:6, arc:10, arcCote:16, pas:30, pasCote:30, large:44, haut:64, mainPleine:8};
 function disposerEventailAdverse(conteneur, pos, n){
   if(!n) return;
   const E=EVENTAIL_ADV;
@@ -715,12 +717,15 @@ function disposerEventailAdverse(conteneur, pos, n){
       el.style.transform='rotate('+(k*E.angle)+'deg)';
       el.style.transformOrigin='50% -35%';           // arc ouvert vers le bas (vers la table)
     }else{
+      // Joueurs des cotes : vus de notre place, leurs cartes sont COUCHEES (ils les
+      // tiennent face a eux). On part donc d'un quart de tour, auquel s'ajoute
+      // l'inclinaison de l'eventail.
       const sens = pos==='left' ? 1 : -1;
       const creuxCote = milieu>0 ? E.arcCote*(1-Math.pow(k/milieu,2)) : E.arcCote;
       el.style.top=(k*E.pasCote - E.haut/2)+'px';
       el.style.left=(sens*creuxCote - E.large/2)+'px';
-      el.style.transform='rotate('+(-sens*k*E.angleCote)+'deg)';
-      el.style.transformOrigin=(sens>0?'-35%':'135%')+' 50%';
+      el.style.transform='rotate('+(sens*90 - sens*k*E.angleCote)+'deg)';
+      el.style.transformOrigin='50% 50%';
     }
     el.style.zIndex=String(10+i);
   });
@@ -1030,9 +1035,8 @@ function render(){
     root.appendChild(wrap);
     const lb=document.createElement('div'); lb.className='bot-label label-'+pos;
     const pinfo = PLAYERS && PLAYERS.find(x=>x.seat===s);
-    const icon = (pinfo && pinfo.human) ? '👤 ' : '🤖 ';
-    lb.textContent = icon + nameOf(s);
-    // a qui le tour ? en jeu : leader + nombre de cartes deja posees ; aux encheres : biddingTurn.
+    lb.textContent = ((pinfo && pinfo.human) ? '👤 ' : '🤖 ') + nameOf(s);
+    // a qui le tour ? en jeu : leader + cartes deja posees ; aux encheres : biddingTurn.
     // La rotation du moteur va de p vers (p+3)%4.
     let doitAgir = -1;
     if(V.screen==='play' && V.leader!==null && V.leader!==undefined){
@@ -1041,7 +1045,26 @@ function render(){
       doitAgir = V.biddingTurn;
     }
     if(s===doitAgir && !ramassage) lb.classList.add('a-lui');
-    root.appendChild(lb);
+
+    if(pos==='left' || pos==='right'){
+      // Le pseudo est place DANS l'eventail : ses coordonnees sont relatives a la main
+      // elle-meme, sans dependre de la hauteur de la fenetre ni de la zone de jeu — c'est
+      // ce calcul indirect qui le faisait atterrir sur les cartes.
+      const E=EVENTAIL_ADV, milieuN=(n-1)/2;
+      const hautCartes = -(milieuN*E.pasCote) - 30;   // bord superieur (cartes couchees)
+      const basCartes  =  (milieuN*E.pasCote) + 30;
+      lb.style.position='absolute'; lb.style.zIndex='50';
+      lb.style.top=Math.round(hautCartes-24)+'px';
+      if(pos==='left') lb.style.left='-28px'; else lb.style.right='-28px';
+      wrap.appendChild(lb);
+      // s'il remonte dans la zone des boutons ronds (fenetre courte), il passe sous
+      // l'eventail. On compare aux boutons REELLEMENT affiches plutot qu'a une valeur fixe.
+      const bas = Math.max(0, ...[...root.querySelectorAll('.icon-btn')]
+        .map(e=>e.getBoundingClientRect().bottom));
+      if(lb.getBoundingClientRect().top < bas + 8) lb.style.top=Math.round(basCartes+6)+'px';
+    }else{
+      root.appendChild(lb);
+    }
   }
 
   // pastilles d'enchere + tour
@@ -1062,7 +1085,7 @@ function render(){
   // filigrane + badge du preneur
   if((V.screen==='play'||V.screen==='roundEnd') && V.taker!==null && V.trumpSuit){
     const pos=screenSlot(V.taker);
-    const wm=document.createElement('div'); wm.className='trump-watermark wm-'+pos;
+    const wm=document.createElement('div'); wm.className='trump-watermark';
     wm.style.color=(V.trumpSuit==='\u2665'||V.trumpSuit==='\u2666')?'#c1272d':'#111';
     wm.textContent=V.trumpSuit; root.appendChild(wm);
     // plus de jeton par-dessus les cartes : le filigrane, agrandi et plus contraste,

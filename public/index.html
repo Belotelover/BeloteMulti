@@ -784,13 +784,34 @@ function ajusterMainsAdverses(root){
     const c=cotes.find(x=>x.p===p); if(!c || !m[p]) return;
     c.el.style.top=Math.round(centreVoulu - s*m[p].decalage)+'px';
   };
-  poser('top', debut + s*hHaut/2);
+  // le joueur d'en face deborde legerement du haut, comme ceux des cotes debordent sur
+  // les bords : cela degage de la place au centre sans rien perdre d'utile
+  const DEBORD_HAUT=30;
+  poser('top', debut + s*hHaut/2 - DEBORD_HAUT);
   // les eventails des cotes sont CENTRES dans l'espace qui reste : sinon, cales sur le haut,
   // ils semblaient remonter au fur et a mesure que les cartes etaient jouees
-  const debutCotes=debut + s*hHaut + 10;
+  const debutCotes=debut + s*hHaut + 10 - DEBORD_HAUT;
   const centreCotes=Math.max(debutCotes + s*hCote/2, (debutCotes + fin)/2);
   poser('left', centreCotes);
   poser('right', centreCotes);
+
+  // Le pli se centre entre le bas de la main d'en face et le haut de la notre : ainsi
+  // l'espace au-dessus et en dessous est le meme, et le filigrane dispose de la meme
+  // place que ce soit le joueur du haut ou celui du bas qui a pris.
+  const pli=root.querySelector('.trick-area');
+  const cartesHaut=[...root.querySelectorAll('.top-hand .mini-card')].map(e=>e.getBoundingClientRect());
+  const basHaut = cartesHaut.length ? Math.max(...cartesHaut.map(r=>r.bottom)) : rr.top+debut;
+  const hautMain = main ? main.getBoundingClientRect().top : rr.bottom;
+  if(pli) pli.style.top=Math.round((basHaut+hautMain)/2 - rr.top)+'px';
+
+  const wm=root.querySelector('.trump-watermark');
+  if(wm && pli){
+    const rp=pli.getBoundingClientRect();
+    if(wm.classList.contains('wm-top'))
+      wm.style.top=Math.round((basHaut+rp.top)/2 - rr.top)+'px';
+    else if(wm.classList.contains('wm-bottom'))
+      wm.style.top=Math.round((rp.bottom+hautMain)/2 - rr.top)+'px';
+  }
 
   // les mains ont bouge : les pseudos doivent suivre
   for(const lb of root.querySelectorAll('.bot-label')){

@@ -50,7 +50,7 @@
   /* Main en eventail, TOUJOURS sur une seule ligne : chaque carte est placee
      individuellement (rotation + hauteur), l'ecartement reste identique quel que soit
      le nombre de cartes restantes — la main se resserre, elle ne s'etale pas. */
-  .bottom-hand{position:absolute;bottom:26px;left:0;right:0;height:104px;z-index:4;isolation:isolate;}
+  .bottom-hand{position:absolute;bottom:14px;left:0;right:0;height:112px;z-index:4;isolation:isolate;}
   .bottom-hand .card{position:absolute;transform-origin:50% 135%;}
 
   .mini-card{position:absolute;width:50px;height:72px;border:1.5px solid #fff;border-radius:6px;box-shadow:0 2px 5px rgba(0,0,0,.55);
@@ -62,7 +62,7 @@
 
   .center-area{position:absolute;top:54%;left:50%;transform:translate(-50%,-50%);display:flex;gap:16px;align-items:center;justify-content:center;min-height:110px;}
 
-  .trick-area{position:absolute;top:54%;left:50%;transform:translate(-50%,-50%);width:216px;height:224px;z-index:5;}
+  .trick-area{position:absolute;top:47%;left:50%;transform:translate(-50%,-50%);width:216px;height:224px;z-index:5;}
   .trick-slot{position:absolute;width:68px;height:100px;}
   /* les cartes jouées au centre sont plus grandes : c'est l'information la plus regardée */
   .trick-slot .card{width:68px;height:100px;padding:4px 5px;}
@@ -100,7 +100,7 @@
   .suit-c{color:#1c7a3e;}
   .suit-s{color:#111;}
 
-  .bottom-hand .card{width:66px;height:96px;transition:transform .15s, box-shadow .15s;cursor:pointer;}
+  .bottom-hand .card{width:78px;height:112px;transition:transform .15s, box-shadow .15s;cursor:pointer;}
   /* Rangee d'accueil des cartes recues apres la prise : elles restent en evidence le temps
      de les voir, puis viennent se ranger dans la main (animation FLIP dans render). */
   /* liste des parties en cours sur l'ecran d'accueil */
@@ -215,7 +215,7 @@
   /* Une seule position : au centre du tapis, dans la zone degagee sous le pli. C'est la
      qu'il se voit le mieux, comme une enseigne imprimee sur le feutre. Qui a pris reste
      indique dans le bandeau du haut. */
-  .trump-watermark{position:absolute;z-index:0;top:70%;left:50%;transform:translate(-50%,-50%);
+  .trump-watermark{position:absolute;z-index:0;top:66%;left:50%;transform:translate(-50%,-50%);
     font-size:132px;line-height:1;opacity:.30;
     pointer-events:none;font-weight:800;
     text-shadow:0 2px 10px rgba(0,0,0,.35);}
@@ -669,12 +669,17 @@ const NOMS_FIGURES = {'V':'V','D':'D','R':'R'};
 // Place les cartes de la main en eventail, sur UNE seule ligne.
 // L'ecartement est FIXE (calcule pour une main pleine de 8 cartes) : quand il ne reste
 // que 3 cartes, elles restent cote a cote au lieu de s'etaler sur toute la largeur.
-const EVENTAIL = {angle:5, arc:11, ecart:-3, large:66, haut:96, mainPleine:8};
+const EVENTAIL = {angle:5, arc:11, ecart:-3, large:78, haut:112, mainPleine:8};
 function disposerEnEventail(conteneur){
   const cartes=[...conteneur.children];
   const n=cartes.length;
   if(!n) return;
-  const E=EVENTAIL;
+  // Sur un ecran court (petit telephone, barre du navigateur affichee), des cartes trop
+  // grandes ecrasent tout le reste : on revient alors a la taille precedente.
+  const petit = window.innerHeight < 660;
+  const E = petit ? Object.assign({}, EVENTAIL, {large:66, haut:96}) : EVENTAIL;
+  for(const el of cartes){ el.style.width=E.large+'px'; el.style.height=E.haut+'px'; }
+  conteneur.style.height=E.haut+'px';
 
   // budget de largeur : on retranche le debordement du a l'inclinaison (les cartes des
   // extremites pivotent vers l'exterieur autour d'un point situe sous la main)
@@ -776,7 +781,10 @@ function ajusterMainsAdverses(root){
     c.el.style.top=Math.round(centreVoulu - s*m[p].decalage)+'px';
   };
   poser('top', debut + s*hHaut/2);
-  const centreCotes=Math.min(debut + s*hHaut + 10 + s*hCote/2, fin - s*hCote/2);
+  // les eventails des cotes sont CENTRES dans l'espace qui reste : sinon, cales sur le haut,
+  // ils semblaient remonter au fur et a mesure que les cartes etaient jouees
+  const debutCotes=debut + s*hHaut + 10;
+  const centreCotes=Math.max(debutCotes + s*hCote/2, (debutCotes + fin)/2);
   poser('left', centreCotes);
   poser('right', centreCotes);
 

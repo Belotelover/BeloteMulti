@@ -157,6 +157,10 @@
   .bottom-hand .card.disabled{filter:brightness(.6) saturate(.4);cursor:not-allowed;}
   .bottom-hand .card.disabled:hover{transform:none;}
 
+  .wm-bottom{top:71%;left:50%;}   /* devant nous, sous le pli et au-dessus de notre main */
+  .wm-top{top:28%;left:50%;}
+  .wm-left{top:52%;left:27%;}
+  .wm-right{top:52%;left:73%;}
   .talon-back{width:66px;height:96px;border-radius:6px;border:2px solid #fff;box-shadow:0 2px 5px rgba(0,0,0,.5);
     background-color:var(--back);
     background-image:
@@ -212,10 +216,10 @@
      le jeton qui se posait sur les cartes et en cachait une. */
   /* Filigrane : imprime sur le tapis, donc DERRIERE toutes les cartes (z-index 0 ; les
      cartes et les mains sont a 3 ou plus). Avant il passait devant et mordait sur elles. */
-  /* Une seule position : au centre du tapis, dans la zone degagee sous le pli. C'est la
-     qu'il se voit le mieux, comme une enseigne imprimee sur le feutre. Qui a pris reste
-     indique dans le bandeau du haut. */
-  .trump-watermark{position:absolute;z-index:0;top:66%;left:50%;transform:translate(-50%,-50%);
+  /* Le filigrane se place DEVANT LE PRENEUR : sa position dit d'un coup d'oeil qui a pris,
+     sans avoir a relire le bandeau. Il reste imprime sur le tapis (z-index 0, derriere
+     toutes les cartes). */
+  .trump-watermark{position:absolute;z-index:0;transform:translate(-50%,-50%);
     font-size:132px;line-height:1;opacity:.30;
     pointer-events:none;font-weight:800;
     text-shadow:0 2px 10px rgba(0,0,0,.35);}
@@ -1160,7 +1164,7 @@ function render(){
   // filigrane + badge du preneur
   if((V.screen==='play'||V.screen==='roundEnd') && V.taker!==null && V.trumpSuit){
     const pos=screenSlot(V.taker);
-    const wm=document.createElement('div'); wm.className='trump-watermark';
+    const wm=document.createElement('div'); wm.className='trump-watermark wm-'+pos;
     wm.style.color=(V.trumpSuit==='\u2665'||V.trumpSuit==='\u2666')?'#c1272d':'#111';
     wm.textContent=V.trumpSuit; root.appendChild(wm);
     // plus de jeton par-dessus les cartes : le filigrane, agrandi et plus contraste,

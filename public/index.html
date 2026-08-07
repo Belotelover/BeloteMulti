@@ -44,16 +44,16 @@
   .hand-row{display:flex;justify-content:center;}
   /* mains adverses : elles aussi en eventail, sinon la table parait incoherente
      (les cartes sont placees une par une, comme la main du bas) */
-  .top-hand{position:absolute;top:172px;left:50%;width:0;height:0;z-index:3;isolation:isolate;}
-  .left-hand{position:absolute;top:50%;left:46px;width:0;height:0;z-index:3;isolation:isolate;}
-  .right-hand{position:absolute;top:50%;right:46px;width:0;height:0;z-index:3;isolation:isolate;}
+  .top-hand{position:absolute;top:180px;left:50%;width:0;height:0;z-index:3;isolation:isolate;}
+  .left-hand{position:absolute;top:50%;left:44px;width:0;height:0;z-index:3;isolation:isolate;}
+  .right-hand{position:absolute;top:50%;right:44px;width:0;height:0;z-index:3;isolation:isolate;}
   /* Main en eventail, TOUJOURS sur une seule ligne : chaque carte est placee
      individuellement (rotation + hauteur), l'ecartement reste identique quel que soit
      le nombre de cartes restantes — la main se resserre, elle ne s'etale pas. */
   .bottom-hand{position:absolute;bottom:26px;left:0;right:0;height:104px;z-index:4;isolation:isolate;}
   .bottom-hand .card{position:absolute;transform-origin:50% 135%;}
 
-  .mini-card{position:absolute;width:58px;height:84px;border:1.5px solid #fff;border-radius:6px;box-shadow:0 2px 5px rgba(0,0,0,.55);
+  .mini-card{position:absolute;width:50px;height:72px;border:1.5px solid #fff;border-radius:6px;box-shadow:0 2px 5px rgba(0,0,0,.55);
     background-color:var(--back);
     background-image:
       repeating-linear-gradient(45deg, rgba(255,255,255,.55) 0 1px, transparent 1px 5px),
@@ -382,6 +382,7 @@ let retourneRevelee=null;  // retourne deja revelee (l'animation ne joue qu'une 
 let donneEnCours=false;      // une distribution est en train d'etre montree
 let donneVisibles=null;      // nombre de cartes de MA main deja retournees pendant la donne
 let donneCle=null;           // identifie la donne en cours (une animation par donne)
+let echelleAdverse=1;        // reduction des mains adverses quand la hauteur manque
 let scoreAffiche=null, scoreRaf=null; // points en cours de defilement dans le bandeau
 const DUREE_RAMASSAGE=430;
 let notice=null, noticeTimer=null; // petit mot passager dans le bandeau
@@ -703,7 +704,90 @@ function disposerEnEventail(conteneur){
 // Meme principe que notre main, adapte aux trois autres joueurs : ecartement FIXE
 // (calcule pour 8 cartes) et petit arc. En haut l'eventail est horizontal ; sur les
 // cotes il est vertical, la courbure tournee vers l'exterieur de la table.
-const EVENTAIL_ADV = {angle:7, arc:13, pas:17, large:58, haut:84, mainPleine:8};
+const EVENTAIL_ADV = {angle:6, arc:10, pas:14, large:50, haut:72, mainPleine:8};
+// Repartit les mains adverses dans l'espace REELLEMENT libre entre le bandeau et notre
+// main. Sur telephone (fenetre courte, barre du navigateur), cet espace fond : sans ce
+// calcul, les eventails des cotes venaient percuter celui d'en face.
+function placerPseudo(root, lb, wrap, pos){
+  const rects=[...wrap.querySelectorAll('.mini-card')].map(e=>e.getBoundingClientRect());
+  if(!rects.length) return;
+  const rr=root.getBoundingClientRect();
+  const hautFan=Math.min(...rects.map(r=>r.top));
+  const basFan=Math.max(...rects.map(r=>r.bottom));
+  const gaucheFan=Math.min(...rects.map(r=>r.left));
+  const droiteFan=Math.max(...rects.map(r=>r.right));
+  const lr=lb.getBoundingClientRect();
+  let x;
+  if(pos==='left')       x=gaucheFan-rr.left;
+  else if(pos==='right') x=droiteFan-rr.left-lr.width;
+  else                   x=(gaucheFan+droiteFan)/2-rr.left-lr.width/2;
+  // les mains debordent volontairement un peu de l'ecran : le pseudo, lui, reste lisible
+  x=Math.max(4, Math.min(x, rr.width-lr.width-4));
+  lb.style.left=Math.round(x)+'px';
+  // Le joueur d'en face : pseudo au-dessus de sa main, SAUF s'il viendrait mordre sur le
+  // bandeau des scores — dans ce cas il passe dessous. Les cotes : toujours en dessous,
+  // le haut des bords etant occupe par les boutons ronds.
+  const hud=root.querySelector('.hud');
+  const basHud=hud?hud.getBoundingClientRect().bottom:rr.top;
+  let y;
+  if(pos==='top'){
+    const dessus=hautFan-lr.height-6;
+    y=(dessus>=basHud+4 ? dessus : basFan+6)-rr.top;
+  }else{
+    y=basFan+6-rr.top;
+  }
+  lb.style.top=Math.round(y)+'px';
+}
+
+function ajusterMainsAdverses(root){
+  const hud=root.querySelector('.hud');
+  const main=root.querySelector('.bottom-hand');
+  const cotes=['top','left','right'].map(p=>({p, el:root.querySelector('.'+p+'-hand')})).filter(x=>x.el);
+  if(!cotes.length) return;
+  const rr=root.getBoundingClientRect();
+  const debut=(hud?hud.getBoundingClientRect().bottom:rr.top)-rr.top+10;
+  const fin  =(main?main.getBoundingClientRect().top:rr.bottom)-rr.top-10;
+  const bande=Math.max(120, fin-debut);
+
+  // On MESURE l'encombrement reel de chaque eventail (rotation et arc compris) plutot que
+  // de l'estimer : c'est ce qui manquait, l'estimation etait trop optimiste sur petit ecran.
+  const mesurer=(el)=>{
+    const r=[...el.querySelectorAll('.mini-card')].map(x=>x.getBoundingClientRect());
+    if(!r.length) return null;
+    const y=Math.min(...r.map(v=>v.top)), Y=Math.max(...r.map(v=>v.bottom));
+    const ancre=el.getBoundingClientRect().top;      // point de pivot du conteneur
+    return {hauteur:Y-y, decalage:(y+Y)/2-ancre};    // hauteur et position du centre / pivot
+  };
+  const m={}; for(const c of cotes) m[c.p]=mesurer(c.el);
+
+  const hHaut=m.top?m.top.hauteur:0;
+  const hCote=Math.max(m.left?m.left.hauteur:0, m.right?m.right.hauteur:0);
+  const besoin=hHaut + hCote + 20;
+  echelleAdverse=Math.min(1, bande/besoin);
+  const s=echelleAdverse;
+
+  for(const c of cotes){
+    const quart = c.p==='top' ? 180 : (c.p==='left' ? 90 : -90);
+    c.el.style.transform='rotate('+quart+'deg) scale('+s+')';
+  }
+  // on place chaque main d'apres le centre voulu, en tenant compte du decalage mesure
+  const poser=(p, centreVoulu)=>{
+    const c=cotes.find(x=>x.p===p); if(!c || !m[p]) return;
+    c.el.style.top=Math.round(centreVoulu - s*m[p].decalage)+'px';
+  };
+  poser('top', debut + s*hHaut/2);
+  const centreCotes=Math.min(debut + s*hHaut + 10 + s*hCote/2, fin - s*hCote/2);
+  poser('left', centreCotes);
+  poser('right', centreCotes);
+
+  // les mains ont bouge : les pseudos doivent suivre
+  for(const lb of root.querySelectorAll('.bot-label')){
+    const pos=lb.dataset.pos;
+    const wrap=root.querySelector('.'+pos+'-hand');
+    if(wrap) placerPseudo(root, lb, wrap, pos);
+  }
+}
+
 function disposerEventailAdverse(conteneur, pos, n){
   if(!n) return;
   const E=EVENTAIL_ADV;
@@ -722,7 +806,7 @@ function disposerEventailAdverse(conteneur, pos, n){
   });
   // un quart de tour pour les joueurs des cotes, un demi-tour pour celui d'en face
   const quart = pos==='top' ? 180 : (pos==='left' ? 90 : -90);
-  conteneur.style.transform='rotate('+quart+'deg)';
+  conteneur.style.transform='rotate('+quart+'deg) scale('+echelleAdverse+')';
   conteneur.style.transformOrigin='50% 50%';
 }
 
@@ -1042,33 +1126,12 @@ function render(){
     if(s===doitAgir && !ramassage) lb.classList.add('a-lui');
 
     // Le pseudo est place a partir des bords REELS de l'eventail (mesures apres rotation),
-    // et hors du conteneur : sinon il pivoterait avec les cartes.
+    // et hors du conteneur : sinon il pivoterait avec les cartes. Il sera repositionne une
+    // seconde fois une fois les mains reparties dans l'espace disponible.
     lb.style.position='absolute'; lb.style.zIndex='12';
-    lb.style.left=''; lb.style.right=''; lb.style.top='';
+    lb.dataset.pos=pos;
     root.appendChild(lb);
-    const rects=[...wrap.querySelectorAll('.mini-card')].map(e=>e.getBoundingClientRect());
-    if(rects.length){
-      const rr=root.getBoundingClientRect();
-      const hautFan=Math.min(...rects.map(r=>r.top));
-      const basFan=Math.max(...rects.map(r=>r.bottom));
-      const gaucheFan=Math.min(...rects.map(r=>r.left));
-      const droiteFan=Math.max(...rects.map(r=>r.right));
-      const lr=lb.getBoundingClientRect();
-      // horizontalement : cale sur le bord exterieur pour les cotes, centre pour celui d'en face
-      let x;
-      if(pos==='left')       x=gaucheFan-rr.left;
-      else if(pos==='right') x=droiteFan-rr.left-lr.width;
-      else                   x=(gaucheFan+droiteFan)/2-rr.left-lr.width/2;
-      // les mains debordent volontairement un peu de l'ecran : le pseudo, lui, doit rester lisible
-      x=Math.max(4, Math.min(x, rr.width-lr.width-4));
-      lb.style.left=Math.round(x)+'px';
-      // verticalement : au-dessus de l'eventail, sauf s'il n'y a pas la place (fenetre courte)
-      // Le joueur d'en face : pseudo AU-DESSUS de sa main (il est centre, aucun bouton la).
-      // Les joueurs des cotes : pseudo SOUS leur main, car le haut des cotes est occupe
-      // par les boutons ronds. Regle simple et sans collision possible.
-      lb.style.top = (pos==='top' ? Math.round(hautFan-lr.height-6-rr.top)
-                                  : Math.round(basFan+6-rr.top))+'px';
-    }
+    placerPseudo(root, lb, wrap, pos);
   }
 
   // pastilles d'enchere + tour
@@ -1205,6 +1268,7 @@ function render(){
   }
   disposerEnEventail(hand);
   root.appendChild(hand);
+  ajusterMainsAdverses(root);   // repartit les mains adverses dans l'espace reellement libre
 
   // cartes qui viennent d'arriver : elles patientent au-dessus de la main, en evidence
   if(freshIds.length){
